@@ -3112,7 +3112,7 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
       : '<tr><th>Item</th><th style="width:18%;text-align:right">Qtd</th><th class="col-unit" style="width:18%">Medida</th><th style="width:8%"></th></tr>';
   }
   const tbody = el('tbody', {id:'tbody-'+searchInp.id});
-  tbody.setAttribute('data-stock-table', _tableId);
+  tbody.setAttribute('data-stock-table', searchInp.id);
   table.appendChild(thead);
   table.appendChild(tbody);
   tableWrap.appendChild(table);
@@ -3160,7 +3160,8 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
   // track open state per table instance -- all closed by default
   // openCats persiste entre renders usando um mapa global keyed por tableId
   // Assim categorias abertas não fecham quando o Firebase atualiza dados
-  const _tableId = searchInputId || ('tbl-' + Date.now());
+  // _tableId = searchInp.id para garantir consistência com o setAttribute acima
+  const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
     // Primeira vez: todas fechadas
@@ -3175,7 +3176,13 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
       tbody.appendChild(el('tr', {}, el('td', {colspan: colCount, cls:'empty'}, 'Nenhum item encontrado')));
       return;
     }
-    const usedCats = CATEGORIES.filter(cat => filtered.some(i => i.category === cat));
+    // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
+    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
+    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
+      .filter(c => allCatsInSource.includes(c));
+    // Categorias sem ordem definida ficam no fim
+    const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
+    const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
     usedCats.forEach(cat => {
       const catItems = filtered.filter(i => i.category === cat);
       const isOpen = openCats[cat] !== false;
@@ -3820,7 +3827,8 @@ function viewPedido() {
 
   // openCats persiste entre renders usando um mapa global keyed por tableId
   // Assim categorias abertas não fecham quando o Firebase atualiza dados
-  const _tableId = searchInputId || ('tbl-' + Date.now());
+  // _tableId = searchInp.id para garantir consistência com o setAttribute acima
+  const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
     // Primeira vez: todas fechadas
@@ -3833,7 +3841,13 @@ function viewPedido() {
     tbody.innerHTML = '';
     const filtered = catalog.filter(i => i.name.toLowerCase().includes(q.toLowerCase()));
     if (!filtered.length) { tbody.appendChild(el('tr',{},el('td',{colspan:'3',cls:'empty'},'Nenhum item encontrado'))); return; }
-    const usedCats = CATEGORIES.filter(cat => filtered.some(i => i.category === cat));
+    // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
+    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
+    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
+      .filter(c => allCatsInSource.includes(c));
+    // Categorias sem ordem definida ficam no fim
+    const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
+    const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
     usedCats.forEach(cat => {
       const catItems = filtered.filter(i => i.category === cat);
       const inCart = catItems.filter(i => (cart[i.id]||0) > 0).length;
@@ -6152,7 +6166,8 @@ function viewBatchOperation(mode) {
 
   // openCats persiste entre renders usando um mapa global keyed por tableId
   // Assim categorias abertas não fecham quando o Firebase atualiza dados
-  const _tableId = searchInputId || ('tbl-' + Date.now());
+  // _tableId = searchInp.id para garantir consistência com o setAttribute acima
+  const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
     // Primeira vez: todas fechadas
@@ -6178,7 +6193,13 @@ function viewBatchOperation(mode) {
       tbody.appendChild(el('tr', {}, el('td', {colspan:'3', cls:'empty'}, 'Nenhum item encontrado')));
       return;
     }
-    const usedCats = CATEGORIES.filter(cat => filtered.some(i => i.category === cat));
+    // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
+    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
+    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
+      .filter(c => allCatsInSource.includes(c));
+    // Categorias sem ordem definida ficam no fim
+    const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
+    const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
     usedCats.forEach(cat => {
       const catItems = filtered.filter(i => i.category === cat);
       const itemsInCart = catItems.filter(i => (cart[i.id] || 0) > 0).length;
@@ -6460,7 +6481,8 @@ function viewCatalogo() {
     const tbody = el('tbody', {});
     // openCats persiste entre renders usando um mapa global keyed por tableId
   // Assim categorias abertas não fecham quando o Firebase atualiza dados
-  const _tableId = searchInputId || ('tbl-' + Date.now());
+  // _tableId = searchInp.id para garantir consistência com o setAttribute acima
+  const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
     // Primeira vez: todas fechadas
@@ -6476,7 +6498,13 @@ function viewCatalogo() {
         tbody.appendChild(el('tr', {}, el('td', {colspan:'6', cls:'empty'}, 'Nenhum item encontrado')));
         return;
       }
-      const usedCats = CATEGORIES.filter(cat => filtered.some(i => i.category === cat));
+      // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
+    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
+    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
+      .filter(c => allCatsInSource.includes(c));
+    // Categorias sem ordem definida ficam no fim
+    const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
+    const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
       usedCats.forEach(cat => {
         const catItems = filtered.filter(i => i.category === cat);
         const isOpen = openCats[cat] !== false;
