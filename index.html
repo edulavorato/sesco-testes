@@ -1661,7 +1661,7 @@ auth.onAuthStateChanged(user => {
     movements.length = 0;
     if (Array.isArray(val)) val.forEach(m => movements.push(m));
     saveLocal('pizza_movements', movements);
-    if (currentView === 'log' || currentView === 'historico') _scheduleRender();
+    // movimentações sincronizadas (views de log foram removidas)
   });
   db.ref('dados/pizza_orders').on('value', snap => {
     if (!window._fb.ready) return;
@@ -1855,18 +1855,6 @@ auth.onAuthStateChanged(user => {
     <button class="nav-item" data-view="catalogo" onclick="setView('catalogo')">
       <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
       Catálogo de Itens
-    </button>
-    <button class="nav-item" data-view="relatorio" onclick="setView('relatorio')">
-      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-      Relatório Mensal
-    </button>
-    <button class="nav-item" data-view="historico" onclick="setView('historico')">
-      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      Histórico de Consumo
-    </button>
-    <button class="nav-item" data-view="log" onclick="setView('log')">
-      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      Movimentações
     </button>
   </div>
 
@@ -3094,7 +3082,7 @@ function unitKey(){ return session ? session.unit : 'cpd'; }
 // Views available per role
 function allowedViews() {
   if (!session) return [];
-  if (isCPD()) return ['cpd','units','dashboard','envios','entrada','saida','catalogo','relatorio','historico','log'];
+  if (isCPD()) return ['cpd','units','dashboard','envios','entrada','saida','catalogo'];
   return ['units']; // Unidades: apenas o Painel de Contagem
 }
 
@@ -3296,17 +3284,9 @@ function buildSidebarNav() {
       ]
     },
     {
-      label: 'Registros',
-      items: [
-        { view:'historico', label:'Hist\u00F3rico',            icon:'<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>' },
-        { view:'log',       label:'Movimenta\u00E7\u00F5es',   icon:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>' },
-      ]
-    },
-    {
       label: 'Configura\u00E7\u00E3o',
       items: [
         { view:'catalogo',  label:'Cat\u00E1logo de Itens',  icon:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>' },
-        { view:'relatorio', label:'Relat\u00F3rio Mensal',   icon:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>' },
       ]
     },
   ];
@@ -5017,230 +4997,7 @@ function viewDashboard() {
 
 
 // VIEW:Relat\u00F3rioMensal(Feature7)
-function viewRelatorio() {
-  const frag = document.createDocumentFragment();
-
-  // Period picker
-  const now = new Date();
-  const periodBox = el('div', {cls:'form-card', style:'max-width:100%;margin-bottom:20px'});
-  periodBox.appendChild(el('div', {cls:'form-title'}, 'Per\u00EDodo do Relat\u00F3rio'));
-  const row = el('div', {cls:'form-row'});
-  const fromGrp = el('div',{cls:'form-group',style:'margin-bottom:0'});
-  fromGrp.appendChild(el('label',{},'De'));
-  const fromInp = el('input',{type:'month', value:`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`});
-  fromGrp.appendChild(fromInp);
-  const toGrp = el('div',{cls:'form-group',style:'margin-bottom:0'});
-  toGrp.appendChild(el('label',{},'At\u00E9'));
-  const toInp = el('input',{type:'month', value:`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`});
-  toGrp.appendChild(toInp);
-  row.appendChild(fromGrp); row.appendChild(toGrp);
-  periodBox.appendChild(row);
-
-  const resultDiv = el('div', {style:'margin-top:16px'});
-  periodBox.appendChild(resultDiv);
-
-  const genBtn = el('button', {cls:'btn btn-primary', style:'margin-top:16px', onclick:()=>generateReport()}, '\uD83D\uDCCA Gerar Relat\u00F3rio');
-  periodBox.appendChild(genBtn);
-  frag.appendChild(periodBox);
-
-  const reportOut = el('div', {});
-  frag.appendChild(reportOut);
-
-  function generateReport() {
-    const from = new Date(fromInp.value + '-01');
-    const to   = new Date(toInp.value);
-    to.setMonth(to.getMonth()+1); // end of month
-
-    const movsInPeriod = movements.filter(m => {
-      const d = new Date(m.date);
-      return d >= from && d < to;
-    });
-
-    const entradas = movsInPeriod.filter(m=>m.type==='entrada');
-    const saidas   = movsInPeriod.filter(m=>m.type==='saida');
-
-    // By category
-    const byCat = {};
-    CATEGORIES.forEach(c=>{byCat[c]={entrada:0,saida:0};});
-    saidas.forEach(m=>{
-      const item=catalog.find(i=>i.id===m.itemId);
-      if(item) byCat[item.category].saida += m.qty;
-    });
-    entradas.forEach(m=>{
-      const item=catalog.find(i=>i.id===m.itemId);
-      if(item) byCat[item.category].entrada += m.qty;
-    });
-
-    // By unit
-    const byUnit = {};
-    UNIT_NAMES.forEach(u=>{byUnit[u]=0;});
-    saidas.forEach(m=>{ if(m.unitName && byUnit[m.unitName]!==undefined) byUnit[m.unitName]+=m.qty; });
-
-    // Value
-    const totalValue = catalog.reduce((s,i)=>s+(cpd[i.id]||0)*(prices[i.id]||0),0);
-
-    reportOut.innerHTML = '';
-
-    // Metrics
-    const grid = el('div', {cls:'metrics-grid'});
-    function addM(label,val,cls='') {
-      const c=el('div',{cls:'metric-card'}); c.appendChild(el('div',{cls:'metric-label'},label)); c.appendChild(el('div',{cls:'metric-value '+cls},val)); grid.appendChild(c);
-    }
-    addM('Movimenta\u00E7\u00F5es', String(movsInPeriod.length));
-    addM('Entradas CPD', String(entradas.length), 'success');
-    addM('Sa\u00EDdas CPD', String(saidas.length), 'accent');
-    addM('Valor em estoque', totalValue>0?totalValue.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'\u2014');
-    reportOut.appendChild(grid);
-
-    // Category breakdown
-    const catBlock = el('div', {cls:'table-wrap section-gap'});
-    const ch = el('div',{cls:'table-header'}); ch.appendChild(el('span',{cls:'table-title'},'Por Categoria'));
-    catBlock.appendChild(ch);
-    const table = el('table',{style:'width:100%;border-collapse:collapse'});
-    table.innerHTML='<thead><tr style="background:var(--surface-2)"><th style="padding:8px 16px;text-align:left;font-size:11px;font-weight:700;color:var(--text-2);border-bottom:1.5px solid var(--border)">Categoria</th><th style="padding:8px 16px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);border-bottom:1.5px solid var(--border)">Entradas</th><th style="padding:8px 16px;text-align:right;font-size:11px;font-weight:700;color:var(--text-2);border-bottom:1.5px solid var(--border)">Sa\u00EDdas</th></tr></thead>';
-    const tbody = el('tbody',{});
-    CATEGORIES.forEach((cat,i)=>{
-      const tr=el('tr',{style:i%2===1?'background:var(--surface-2)':''});
-      tr.appendChild(el('td',{style:'padding:9px 16px;font-size:13px'},cat));
-      tr.appendChild(el('td',{style:'padding:9px 16px;text-align:right;font-size:13px;color:var(--success);font-weight:600'},String(byCat[cat].entrada)));
-      tr.appendChild(el('td',{style:'padding:9px 16px;text-align:right;font-size:13px;color:var(--accent);font-weight:600'},String(byCat[cat].saida)));
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody); catBlock.appendChild(table); reportOut.appendChild(catBlock);
-
-    // By unit
-    const unitBlock = el('div',{cls:'table-wrap section-gap'});
-    const uh=el('div',{cls:'table-header'}); uh.appendChild(el('span',{cls:'table-title'},'Sa\u00EDdas por Unidade'));
-    unitBlock.appendChild(uh);
-    const unitTable=el('table',{style:'width:100%;border-collapse:collapse'});
-    const utbody=el('tbody',{});
-    UNIT_NAMES.forEach((u,i)=>{
-      const tr=el('tr',{style:i%2===1?'background:var(--surface-2)':''});
-      tr.appendChild(el('td',{style:'padding:9px 16px;font-size:13px;font-weight:600'},u));
-      tr.appendChild(el('td',{style:'padding:9px 16px;text-align:right;font-size:13px;color:var(--accent);font-weight:700'},String(byUnit[u])+' un.'));
-      utbody.appendChild(tr);
-    });
-    unitTable.appendChild(utbody); unitBlock.appendChild(unitTable); reportOut.appendChild(unitBlock);
-  }
-
-  return frag;
-}
-
 // VIEW:Hist\u00F3ricodeconsumo(Feature6)
-function viewHistorico() {
-  const frag = document.createDocumentFragment();
-
-  // Unit filter tabs (CPD only)
-  if (isCPD()) {
-    const tabWrap = el('div', {style:'display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap'});
-    const units = ['Todas', 'CPD', ...UNIT_NAMES];
-    let activeHistUnit = 'Todas';
-
-    const buildChart = (unit) => {
-      // Clear and rebuild from unit selection
-      const existing = frag.querySelector ? null : null;
-    };
-
-    units.forEach(u => {
-      const btn = el('button', {
-        cls: 'unit-tab' + (u === 'Todas' ? ' active' : ''),
-        style: 'font-size:12px;padding:6px 14px',
-        onclick: function() {
-          tabWrap.querySelectorAll('.unit-tab').forEach(b => b.classList.remove('active'));
-          this.classList.add('active');
-          activeHistUnit = u;
-          // Filter movements
-          const filtered = u === 'Todas' ? movements : movements.filter(m => m.unitName === u || (u==='CPD' && m.type==='entrada'));
-          rebuildChart(filtered);
-        }
-      }, u);
-      tabWrap.appendChild(btn);
-    });
-    frag.appendChild(tabWrap);
-  }
-
-  frag.appendChild(el('p',{style:'font-size:13px;color:var(--text-3);margin-bottom:16px;font-style:italic'},'Consumo das \u00FAltimas 8 semanas baseado nas sa\u00EDdas do CPD.'));
-
-  const weekData = getConsumptionData(8);
-  const maxVal = Math.max(...weekData.map(d=>d.total), 1);
-
-  // Weekly bar chart
-  const chartCard = el('div',{cls:'table-wrap', style:'padding:16px 20px 20px;margin-bottom:20px'});
-  chartCard.appendChild(el('p',{style:'font-weight:700;font-size:13px;margin-bottom:12px'},'Total de itens movimentados por semana'));
-  const barWrap = el('div',{cls:'chart-bar-wrap'});
-  weekData.forEach(d=>{
-    const col=el('div',{cls:'chart-bar-col'});
-    col.appendChild(el('span',{cls:'chart-value'},d.total>0?String(d.total):''));
-    const bar=el('div',{cls:'chart-bar',style:`height:${Math.max(2,Math.round(d.total/maxVal*70))}px`});
-    col.appendChild(bar);
-    col.appendChild(el('span',{cls:'chart-label'},d.label));
-    barWrap.appendChild(col);
-  });
-  chartCard.appendChild(barWrap);
-  frag.appendChild(chartCard);
-
-  // Category breakdown last 4 weeks
-  const catData = getCategoryConsumption(4);
-  const catBlock = el('div',{cls:'table-wrap'});
-  const ch=el('div',{cls:'table-header'});
-
-  // Unit selector dropdown for category breakdown
-  if (isCPD()) {
-    ch.appendChild(el('span',{cls:'table-title'},'Por Categoria \u2014 \u00FAltimas 4 semanas'));
-    const unitSel = el('select', {style:'margin-left:auto;padding:4px 8px;font-size:12px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text)'});
-    ['Todas as unidades', 'CPD', ...UNIT_NAMES].forEach(u => {
-      unitSel.appendChild(el('option', {value:u}, u));
-    });
-    unitSel.addEventListener('change', () => {
-      const unit = unitSel.value;
-      const filtered = unit === 'Todas as unidades' ? movements : movements.filter(m => m.unitName === unit);
-      // Recalculate category data
-      const catTotals = {};
-      filtered.forEach(m => {
-        const item = catalog.find(c => c.id === m.itemId);
-        if (!item) return;
-        catTotals[item.category] = (catTotals[item.category]||0) + m.qty;
-      });
-      tbody.innerHTML = '';
-      const sorted2 = CATEGORIES.filter(c=>catTotals[c]>0).sort((a,b)=>(catTotals[b]||0)-(catTotals[a]||0));
-      const maxCat2 = Math.max(...sorted2.map(c=>catTotals[c]||0), 1);
-      sorted2.forEach((cat,i)=>{
-        const tr=el('tr',{style:i%2===1?'background:var(--surface-2)':''});
-        tr.appendChild(el('td',{style:'padding:9px 16px;font-size:13px'},cat));
-        const barTd=el('td',{style:'padding:9px 16px;width:40%'});
-        const barBg=el('div',{style:'background:var(--border-light);border-radius:3px;height:10px;overflow:hidden'});
-        const barFg=el('div',{style:`background:var(--accent);height:100%;width:${Math.round((catTotals[cat]||0)/maxCat2*100)}%;border-radius:3px`});
-        barBg.appendChild(barFg); barTd.appendChild(barBg); tr.appendChild(barTd);
-        tr.appendChild(el('td',{style:'padding:9px 16px;text-align:right;font-size:13px;font-weight:700;color:var(--accent)'},String(catTotals[cat]||0)+' un.'));
-        tbody.appendChild(tr);
-      });
-      if (!sorted2.length) tbody.appendChild(el('tr',{},el('td',{colspan:'3',cls:'empty'},'Nenhuma movimenta\u00E7\u00E3o registrada')));
-    });
-    ch.appendChild(unitSel);
-  } else {
-    ch.appendChild(el('span',{cls:'table-title'},'Por Categoria \u2014 \u00FAltimas 4 semanas'));
-  }
-
-  catBlock.appendChild(ch);
-  const table=el('table',{style:'width:100%;border-collapse:collapse'});
-  const tbody=el('tbody',{});
-  const sorted = CATEGORIES.filter(c=>catData[c]>0).sort((a,b)=>catData[b]-catData[a]);
-  const maxCat = Math.max(...sorted.map(c=>catData[c]),1);
-  sorted.forEach((cat,i)=>{
-    const tr=el('tr',{style:i%2===1?'background:var(--surface-2)':''});
-    tr.appendChild(el('td',{style:'padding:9px 16px;font-size:13px'},cat));
-    const barTd=el('td',{style:'padding:9px 16px;width:40%'});
-    const barBg=el('div',{style:'background:var(--border-light);border-radius:3px;height:10px;overflow:hidden'});
-    const barFg=el('div',{style:`background:var(--accent);height:100%;width:${Math.round(catData[cat]/maxCat*100)}%;border-radius:3px`});
-    barBg.appendChild(barFg); barTd.appendChild(barBg); tr.appendChild(barTd);
-    tr.appendChild(el('td',{style:'padding:9px 16px;text-align:right;font-size:13px;font-weight:700;color:var(--accent)'},String(catData[cat])+' un.'));
-    tbody.appendChild(tr);
-  });
-  if (!sorted.length) tbody.appendChild(el('tr',{},el('td',{colspan:'3',cls:'empty'},'Nenhuma movimenta\u00E7\u00E3o registrada')));
-  table.appendChild(tbody); catBlock.appendChild(table); frag.appendChild(catBlock);
-  return frag;
-}
-
 // VIEWS
 
 function viewCpd() {
@@ -6623,6 +6380,9 @@ function render() {
   const prevScrollY = window.scrollY || document.documentElement.scrollTop;
 
   contentEl.innerHTML = '';
+  // Limpar cache de linhas DOM — foram destruídas pelo innerHTML=''
+  // _openCatsMap é preservado (mantém categorias abertas/fechadas)
+  window._rowCache = {};
   let node;
   if (currentView === 'cpd')         node = viewCpd();
   else if (currentView === 'units')      node = viewUnits();
@@ -6631,9 +6391,6 @@ function render() {
   else if (currentView === 'entrada')    node = viewEntrada();
   else if (currentView === 'catalogo')   node = viewCatalogo();
   else if (currentView === 'dashboard')  node = viewDashboard();
-  else if (currentView === 'relatorio')  node = viewRelatorio();
-  else if (currentView === 'historico')  node = viewHistorico();
-  else if (currentView === 'log')        node = viewLog();
   if (node) contentEl.appendChild(node);
 
   // Restaurar scroll após render (evita que a tela "pule" para o topo)
@@ -6753,155 +6510,6 @@ if (Object.keys(unitStock).length === 0) {
 // 5. PEDIDOS e MOVIMENTAÇÕES — nunca resetar, apenas carregar do localStorage
 
 // \u2500\u2500 VIEW: Movimenta\u00E7\u00F5es (Activity Log) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-function viewLog() {
-  const frag = document.createDocumentFragment();
-
-  // Header
-  const header = el('div', {style:'display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px'});
-  header.appendChild(el('h2', {style:'font-size:18px;font-weight:700;color:var(--text);margin:0'}, 'Movimenta\u00E7\u00F5es'));
-  const clearBtn = el('button', {cls:'btn btn-outline btn-sm', style:'color:var(--text-3);border-color:var(--border)', onclick:()=>{
-    if (!confirm('Limpar todo o hist\u00F3rico de movimenta\u00E7\u00F5es?')) return;
-    activityLog = [];
-    save('pizza_log', activityLog);
-    render();
-    toast('Hist\u00F3rico limpo');
-  }});
-  clearBtn.textContent = '\uD83D\uDDD1 Limpar';
-  header.appendChild(clearBtn);
-
-  const pdfLogBtn = el('button', {cls:'btn btn-outline btn-sm', style:'color:var(--accent);border-color:var(--accent)', onclick:()=>{
-    const today = new Date().toISOString().slice(0,10);
-    const todayEntries = activityLog.filter(e => e.ts.startsWith(today));
-    if (todayEntries.length === 0) { toast('Nenhuma movimenta\u00E7\u00E3o hoje'); return; }
-    printLogPdf(todayEntries);
-  }});
-  pdfLogBtn.textContent = '\uD83D\uDCC4 PDF do dia';
-  header.appendChild(pdfLogBtn);
-  frag.appendChild(header);
-
-  // Filter bar
-  const filterWrap = el('div', {style:'display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap'});
-  const filterSel = el('select', {style:'padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px'});
-  [['all','\uD83D\uDCCB Todos'],['pedido','\uD83D\uDCCB Pedidos'],['separacao','\uD83D\uDCE6 Separa\u00E7\u00E3o'],['envio','\uD83D\uDE9A Envios'],['recebimento','\u2705 Recebimentos'],['recebimento_incompleto','\u26A0\uFE0F Incomp.'],['entrada','\u2B07\uFE0F Entradas'],['saida','\u2B06\uFE0F Sa\u00EDdas']].forEach(([v,l])=>{
-    filterSel.appendChild(el('option', {value:v}, l));
-  });
-
-  // Unit filter (CPD only)
-  let unitFilter = null;
-  if (isCPD()) {
-    unitFilter = el('select', {style:'padding:6px 10px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px'});
-    unitFilter.appendChild(el('option', {value:'all'}, 'Todas as unidades'));
-    ['CPD',...UNIT_NAMES].forEach(u => unitFilter.appendChild(el('option',{value:u},u)));
-  }
-
-  const searchInp = el('input', {type:'text', placeholder:'Buscar por nome ou a\u00E7\u00E3o...', style:'flex:1;min-width:160px;padding:6px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px;outline:none'});
-
-  filterWrap.appendChild(filterSel);
-  if (unitFilter) filterWrap.appendChild(unitFilter);
-  filterWrap.appendChild(searchInp);
-  frag.appendChild(filterWrap);
-
-  // Log list container
-  const listWrap = el('div', {style:'display:flex;flex-direction:column;gap:6px'});
-  frag.appendChild(listWrap);
-
-  const TYPE_ICONS = {
-    'pedido':                '\uD83D\uDCCB',
-    'separacao':             '\uD83D\uDCE6',
-    'envio':                 '\uD83D\uDE9A',
-    'recebimento':           '\u2705',
-    'recebimento_incompleto':'\u26A0\uFE0F',
-    'entrada':               '\u2B07\uFE0F',
-    'saida':                 '\u2B06\uFE0F',
-    'catalogo':              '\uD83D\uDCDA',
-    'estoque':               '\uD83D\uDCCA',
-  };
-  const TYPE_COLORS = {
-    'pedido':                '#2A4B9A',
-    'separacao':             'var(--accent)',
-    'envio':                 'var(--success)',
-    'recebimento':           'var(--success)',
-    'recebimento_incompleto':'var(--danger)',
-    'entrada':               '#2A4B9A',
-    'saida':                 'var(--accent)',
-  };
-
-  function renderLog() {
-    listWrap.innerHTML = '';
-    const typeF = filterSel.value;
-    const unitF = unitFilter ? unitFilter.value : 'all';
-    const search = searchInp.value.toLowerCase().trim();
-
-    const filtered = activityLog.filter(e => {
-      if (typeF !== 'all' && e.type !== typeF) return false;
-      if (unitF !== 'all' && e.unit !== unitF) return false;
-      if (search && !e.description.toLowerCase().includes(search) && !e.user.toLowerCase().includes(search)) return false;
-      return true;
-    });
-
-    if (filtered.length === 0) {
-      const empty = el('div', {style:'text-align:center;padding:40px;color:var(--text-3);font-size:14px'});
-      empty.textContent = activityLog.length === 0 ? 'Nenhuma movimenta\u00E7\u00E3o registrada ainda.' : 'Nenhuma movimenta\u00E7\u00E3o encontrada com esse filtro.';
-      listWrap.appendChild(empty);
-      return;
-    }
-
-    filtered.forEach(entry => {
-      const card = el('div', {style:`
-        display:flex;align-items:flex-start;gap:12px;
-        padding:12px 14px;background:var(--surface);
-        border-radius:var(--radius-sm);border:1px solid var(--border-light);
-      `});
-
-      // Icon
-      const icon = el('div', {style:`
-        flex-shrink:0;width:34px;height:34px;border-radius:50%;
-        display:flex;align-items:center;justify-content:center;
-        background:${TYPE_COLORS[entry.type]||'var(--accent)'}18;
-        font-size:16px;
-      `});
-      icon.textContent = TYPE_ICONS[entry.type] || '\uD83D\uDD35';
-      card.appendChild(icon);
-
-      // Content
-      const content = el('div', {style:'flex:1;min-width:0'});
-      const desc = el('div', {style:'font-size:13px;color:var(--text);line-height:1.4'});
-      desc.textContent = entry.description;
-      content.appendChild(desc);
-
-      const meta = el('div', {style:'display:flex;gap:8px;margin-top:4px;flex-wrap:wrap'});
-
-      // User badge
-      const userBadge = el('span', {style:`
-        font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;
-        background:${TYPE_COLORS[entry.type]||'var(--accent)'}22;
-        color:${TYPE_COLORS[entry.type]||'var(--accent)'};
-      `});
-      userBadge.textContent = entry.user + ' \u00B7 ' + entry.unit;
-      meta.appendChild(userBadge);
-
-      // Timestamp
-      const ts = new Date(entry.ts);
-      const tsStr = ts.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'})
-        + ' \u00E0s ' + ts.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
-      const tsBadge = el('span', {style:'font-size:10px;color:var(--text-3)'});
-      tsBadge.textContent = tsStr;
-      meta.appendChild(tsBadge);
-
-      content.appendChild(meta);
-      card.appendChild(content);
-      listWrap.appendChild(card);
-    });
-  }
-
-  filterSel.addEventListener('change', renderLog);
-  if (unitFilter) unitFilter.addEventListener('change', renderLog);
-  searchInp.addEventListener('input', renderLog);
-  renderLog();
-
-  return frag;
-}
-
 // Login form wiring
 const loginBtn = document.getElementById('login-btn');
 loginBtn.addEventListener('click', doLogin);
