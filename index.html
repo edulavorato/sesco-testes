@@ -3534,7 +3534,7 @@ function el(tag, attrs={}, ...children) {
       // Linhas já existem — só ajustar visibilidade
       tbody.querySelectorAll('tr[data-item-id]').forEach(tr => {
         const cat = tr.getAttribute('data-cat');
-        tr.style.display = openCats[cat] !== false ? '' : 'none';
+        tr.style.display = openCats[cat] === true ? '' : 'none';
       });
       tbody.querySelectorAll('tr.cat-row').forEach(catTr => { catTr.style.display = ''; });
       return;
@@ -3555,7 +3555,7 @@ function el(tag, attrs={}, ...children) {
     const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
     usedCats.forEach(cat => {
       const catItems = filtered.filter(i => i.category === cat);
-      const isOpen = openCats[cat] !== false;
+      const isOpen = openCats[cat] === true; // fechado por padrão
 
       // Header row with toggle button
       const catTr = el('tr', {cls:'cat-row'});
@@ -3588,25 +3588,7 @@ function el(tag, attrs={}, ...children) {
       togBtn.addEventListener('click', () => {
         openCats[cat] = !openCats[cat];
         togBtn.classList.toggle('open', openCats[cat]);
-
-        if (openCats[cat] && !rowCache[cat]) {
-          // LAZY: primeira vez abrindo — montar as linhas agora
-          catItems.forEach(item => {
-            const row = tbody.querySelector(`tr[data-item-id="${CSS.escape(item.id)}"]`);
-            if (!row) {
-              // linha ainda não existe no DOM — será inserida pelo renderRows atual
-              // Forçar renderRows a montar apenas esta categoria
-            }
-          });
-          rowCache[cat] = true;
-          // Re-renderizar só se as linhas ainda não foram montadas pelo renderRows inicial
-          const existingRows = tbody.querySelectorAll(`[data-cat="${CSS.escape(cat)}"]`);
-          if (existingRows.length === 0) {
-            // Montar as linhas desta categoria agora (renderRows já foi chamado, mas pulou as fechadas)
-            renderRows(''); // renderRows gerencia display baseado em openCats
-          }
-        }
-
+        // Mostrar/ocultar linhas diretamente — sem chamar renderRows (evita duplo clique)
         const rows = tbody.querySelectorAll(`[data-cat="${CSS.escape(cat)}"]`);
         rows.forEach(r => { r.style.display = openCats[cat] ? '' : 'none'; });
       });
@@ -5320,38 +5302,6 @@ function viewCpd() {
 function viewUnits() {
   const frag = document.createDocumentFragment();
 
-  // Banner de entrega a caminho (lado unidade)
-  const shipBanner = buildShipmentBanner();
-  if (shipBanner) frag.appendChild(shipBanner);
-
-  // Banner da janela de contagem (apenas unidades)
-  if (!isCPD()) {
-    const d = diaOperacional();
-    const allowed = CONTAGEM_JANELAS[d];
-    const aberto = dentroDoHorario();
-    let msg, cor;
-    if (aberto && allowed) {
-      const cats = allowed.includes('ALL') ? 'todas as categorias' : allowed.join(', ');
-      msg = '\u2705 Janela de contagem ABERTA (' + DIAS_SEMANA[d] + '): ' + cats + '.';
-      cor = 'border-color:var(--success);background:var(--success-bg, rgba(50,160,80,.08))';
-    } else {
-      // achar próxima janela geral
-      let prox = 'a definir';
-      for (let i = aberto && allowed ? 1 : 0; i <= 7; i++) {
-        const dd = (d + i) % 7;
-        if (CONTAGEM_JANELAS[dd]) {
-          prox = DIAS_SEMANA[dd] + ' a partir das 15h';
-          if (i === 0 && !aberto) prox = 'hoje a partir das 15h';
-          break;
-        }
-      }
-      msg = '\uD83D\uDD12 Fora da janela de contagem. Pr\u00F3xima: ' + prox + '.';
-      cor = 'border-color:var(--border);background:var(--surface-2)';
-    }
-    const winBanner = el('div', {cls:'table-wrap', style:'padding:11px 16px;margin-bottom:14px;font-size:12.5px;color:var(--text-2);' + cor}, msg);
-    frag.appendChild(winBanner);
-  }
-
   // CPD users see unit tabs; unit users are locked to their own unit
   if (isCPD()) {
     const tabs = el('div', {cls:'unit-tabs'});
@@ -6128,7 +6078,7 @@ function viewBatchOperation(mode) {
     usedCats.forEach(cat => {
       const catItems = filtered.filter(i => i.category === cat);
       const itemsInCart = catItems.filter(i => (cart[i.id] || 0) > 0).length;
-      const isOpen = openCats[cat] !== false;
+      const isOpen = openCats[cat] === true; // fechado por padrão
 
       const catTr = el('tr', {cls:'cat-row'});
       const catTd = document.createElement('td');
@@ -6438,7 +6388,7 @@ function viewCatalogo() {
     const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
       usedCats.forEach(cat => {
         const catItems = filtered.filter(i => i.category === cat);
-        const isOpen = openCats[cat] !== false;
+        const isOpen = openCats[cat] === true; // fechado por padrão
 
         const catTr = el('tr', {cls:'cat-row'});
         const catTd = document.createElement('td');
