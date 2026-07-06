@@ -416,6 +416,63 @@
   }
   @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
+  /* ── Tela de carregamento ─────────────────────────────────────────────────── */
+  #loading-gate {
+    position: fixed; inset: 0; z-index: 2000;
+    background: #0C1A0F;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 20px;
+    transition: opacity .4s ease;
+  }
+  #loading-gate.hiding {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .loading-logo {
+    width: 64px; height: 64px;
+    background: var(--accent, #2a6049);
+    border-radius: 18px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 34px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    animation: loadPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes loadPulse {
+    0%, 100% { transform: scale(1);    box-shadow: 0 8px 32px rgba(42,96,73,.3); }
+    50%       { transform: scale(1.06); box-shadow: 0 12px 40px rgba(42,96,73,.6); }
+  }
+  .loading-bar-wrap {
+    width: 200px; height: 3px;
+    background: rgba(255,255,255,.1);
+    border-radius: 99px; overflow: hidden;
+  }
+  .loading-bar {
+    height: 100%; width: 0%;
+    background: var(--accent, #2a6049);
+    border-radius: 99px;
+    transition: width .3s ease;
+  }
+  .loading-label {
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px; font-weight: 500;
+    color: rgba(255,255,255,.45);
+    letter-spacing: .4px;
+    min-height: 18px;
+    transition: opacity .2s;
+  }
+  .loading-steps {
+    display: flex; gap: 6px; align-items: center;
+  }
+  .loading-step {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255,255,255,.15);
+    transition: background .3s ease, transform .2s ease;
+  }
+  .loading-step.done    { background: #38A169; }
+  .loading-step.active  { background: #68D391; transform: scale(1.3); }
+  .loading-step.error   { background: #FC8181; }
+
   /* Botão confirmar item */
   .confirm-btn {
     display: flex; align-items: center; justify-content: center;
@@ -1423,7 +1480,10 @@ auth.signInAnonymously()
 auth.onAuthStateChanged(user => {
   if (!user) return;
   window._fb.ready = true;
+  if (typeof _gateStep === 'function') _gateStep('auth', 'Autenticado — carregando dados…');
   _flushPendingWrites(); // processa qualquer write que aconteceu antes do auth
+  // Migrar estrutura de dados das unidades se necessário (uma vez só)
+  setTimeout(_migrarEstruturaPizzaUnits, 2000);
 
   // ── Monitor de conectividade ─────────────────────────────────────────────
   // Ouve o nó especial .info/connected do Firebase para detectar drops de rede
@@ -1441,6 +1501,12 @@ auth.onAuthStateChanged(user => {
       if (label) label.textContent = 'CONECTADO';
       clearTimeout(window._connHideTimer);
       window._connHideTimer = setTimeout(() => { badge.style.display = 'none'; }, 2000);
+
+      // Reconectou — processar writes pendentes imediatamente
+      if (window._fb && (window._fb.pendingWrites || []).length > 0) {
+        console.log('[Firebase] Reconectado — sincronizando', window._fb.pendingWrites.length, 'writes pendentes');
+        setTimeout(_flushPendingWrites, 500); // pequeno delay para estabilizar conexão
+      }
     } else {
       clearTimeout(window._connHideTimer);
       badge.style.display = 'flex';
@@ -1451,225 +1517,231 @@ auth.onAuthStateChanged(user => {
     }
   });
 
-  // CPD publica a versão atual do app no Firebase para todos os dispositivos verificarem
-  // (apenas quem tiver a versão mais recente e for CPD atualiza o valor)
+  // Publicar versão do app — qualquer dispositivo com versão mais recente atualiza
   setTimeout(() => {
+    if (!window._APP_VERSION) return;
     db.ref('dados/pizza_app_version').once('value').then(snap => {
       const stored = snap.val();
-      // Gravar se ainda não existe ou se versão local é diferente da armazenada
-      // Usa comparação lexicográfica — versões devem seguir semver (1.4.0 > 1.3.0)
       if (!stored || window._APP_VERSION > stored) {
         db.ref('dados/pizza_app_version').set(window._APP_VERSION)
-          .then(() => console.log('[App] Versão ' + window._APP_VERSION + ' publicada no Firebase'))
+          .then(() => console.log('[App] Versão ' + window._APP_VERSION + ' publicada'))
           .catch(e => console.warn('[App] Erro ao publicar versão:', e));
       }
     });
-  }, 3000); // aguarda o listener principal sincronizar primeiro
+  }, 4000); // aguarda listeners inicializarem
 
-  db.ref('dados').on('value', snapshot => {
-    const data = snapshot.val() || {};
-    window._fb.cache = data;
+  // ═══ LISTENERS SEPARADOS POR SUBNÓ (Fase 3) ════════════════════════════════
+  // Cada dispositivo ouve apenas o que precisa — sem receber o banco inteiro
+  // a cada mudança de qualquer outro dispositivo.
 
-    if (typeof catalog !== 'undefined') {
-      const fbSeedVer    = data.pizza_seed_ver;
-      const localSeedVer = window._seedVersion || null;
-      const fbCatalog    = data.pizza_catalog;
-      const fbCatalogLen = Array.isArray(fbCatalog) ? fbCatalog.length : 0;
-
-      // ═══ MIGRAÇÃO DE CATÁLOGO v11 (planilha consolidada) ═══
-      // Substitui o catálogo antigo pelo novo e zera as contagens —
-      // nova contagem será feita do zero com a lista atualizada.
-      const CATALOG_VER = 'v13';
-      const APP_VERSION = '1.4.0'; // Incrementar a cada deploy importante
-      window._APP_VERSION = APP_VERSION;
-      if (!window._migrandoV11 && data.pizza_catalog_ver !== CATALOG_VER && fbCatalogLen > 0) {
-        window._migrandoV11 = true;
-        console.log('[Migração v12] Substituindo catálogo e zerando contagens...');
-        Promise.all([
-          db.ref('dados/pizza_catalog').set(SEED_CATALOG),
-          db.ref('dados/pizza_unit_catalog').set(UNIT_SEED_CATALOG),
-          db.ref('dados/pizza_cpd').set({}),
-          db.ref('dados/pizza_units').set({}),
-          db.ref('dados/pizza_minimums').set({}),
-          db.ref('dados/pizza_prices').set({}),
-          db.ref('dados/pizza_catalog_ver').set(CATALOG_VER),
-        ]).then(() => {
-          console.log('[Migração v12] Concluída! Catálogo novo com ' + SEED_CATALOG.length + ' itens.');
-          window._migrandoV11 = false;
-        }).catch(e => {
-          console.error('[Migração v12] Erro:', e);
-          window._migrandoV11 = false;
-        });
-        return; // aguarda o próximo evento do listener já com dados migrados
-      }
-
-      if (fbCatalogLen === 0) {
-        // Banco vazio — primeira execução. Envia o seed para o Firebase.
-        console.log('[Firebase] Banco vazio, enviando catálogo inicial...');
-        const catToSend = (typeof SEED_CATALOG !== 'undefined' && SEED_CATALOG.length > 0)
-          ? SEED_CATALOG : catalog;
-        if (catToSend && catToSend.length > 0) {
-          db.ref('dados/pizza_catalog').set(catToSend)
-            .then(() => db.ref('dados/pizza_seed_ver').set(localSeedVer || 'v10'))
-            .then(() => console.log('[Firebase] Catálogo inicial enviado:', catToSend.length, 'itens'))
-            .catch(e => console.error('[Firebase] Erro ao enviar catálogo:', e));
-          catalog.length = 0;
-          catToSend.forEach(i => catalog.push(i));
-        }
-      } else {
-        // Firebase JÁ TEM catálogo — sempre usa o do Firebase, nunca sobrescreve.
-        // Edições feitas pelo usuário ficam salvas aqui.
-        catalog.length = 0;
-        fbCatalog.forEach(i => catalog.push(i));
-        console.log('[Firebase] Catálogo carregado do banco:', fbCatalog.length, 'itens');
-      }
-
-      if (data.pizza_cpd) {
-        Object.keys(cpd).forEach(k => delete cpd[k]);
-        Object.assign(cpd, data.pizza_cpd);
-        saveLocal('pizza_cpd', cpd);
-      }
-      if (data.pizza_minimums) {
-        Object.keys(minimums).forEach(k => delete minimums[k]);
-        Object.assign(minimums, data.pizza_minimums);
-        saveLocal('pizza_minimums', minimums);
-      }
-      if (data.pizza_prices) {
-        Object.assign(prices, data.pizza_prices);
-        saveLocal('pizza_prices', prices);
-      }
-      if (data.pizza_unit_minimums) {
-        if (!window.unitMinimums) window.unitMinimums = {};
-        Object.keys(window.unitMinimums).forEach(k => delete window.unitMinimums[k]);
-        Object.assign(window.unitMinimums, data.pizza_unit_minimums);
-        saveLocal('pizza_unit_minimums', window.unitMinimums);
-      }
-      if (data.pizza_units) {
-        Object.keys(unitStock).forEach(k => delete unitStock[k]);
-        Object.assign(unitStock, data.pizza_units);
-        saveLocal('pizza_units', unitStock);
-      }
-      if (data.pizza_orders) {
-        orders.length = 0;
-        data.pizza_orders.forEach(o => orders.push(o));
-        saveLocal('pizza_orders', orders);
-      }
-      if (data.pizza_movements) {
-        movements.length = 0;
-        data.pizza_movements.forEach(m => movements.push(m));
-        saveLocal('pizza_movements', movements);
-      }
-      if (data.pizza_catalog && data.pizza_catalog.length > 0) {
-        saveLocal('pizza_catalog', data.pizza_catalog);
-      }
-      if (data.pizza_envios) {
-        envios = data.pizza_envios;
-        saveLocal('pizza_envios', envios);
-      }
-      if (data.pizza_shipments) {
-        const prevTransitIds = new Set(shipments.filter(s=>s.status==='em_transito').map(s=>s.id));
-        shipments = data.pizza_shipments;
-        saveLocal('pizza_shipments', shipments);
-        // Notificar unidade sobre novos envios em trânsito
-        if (session && !isCPD()) {
-          shipments.filter(s => s.unit === session.unit && s.status === 'em_transito' && !prevTransitIds.has(s.id))
-            .forEach(s => {
-              if (typeof showPushNotif === 'function') {
-                showPushNotif('\uD83D\uDE9A Entrega a caminho!',
-                  'O CPD enviou ' + s.items.length + (s.items.length===1?' item':' itens') + ' para ' + s.unit + '.', []);
-              }
-            });
-        }
-      }
-      if (data.pizza_pendencias) {
-        pendencias = data.pizza_pendencias;
-        saveLocal('pizza_pendencias', pendencias);
-      }
-      if (data.pizza_counted) {
-        countedMap = data.pizza_counted;
-        saveLocal('pizza_counted', countedMap);
-      }
-
-      // ── Verificação de versão do app ──────────────────────────────────────
-      // Se o Firebase tem uma versão mais recente, exibir banner de atualização
-      const remoteVer = data.pizza_app_version;
-      if (remoteVer && remoteVer !== window._APP_VERSION && !window._updateBannerShown) {
-        window._updateBannerShown = true;
-        const existingBanner = document.getElementById('update-banner');
-        if (!existingBanner) {
-          const banner = document.createElement('div');
-          banner.id = 'update-banner';
-          banner.style.cssText = [
-            'position:fixed','bottom:0','left:0','right:0','z-index:9999',
-            'background:#1a3a2a','color:#fff','padding:12px 20px',
-            'display:flex','align-items:center','justify-content:space-between',
-            'font-family:DM Sans,sans-serif','font-size:14px',
-            'box-shadow:0 -4px 20px rgba(0,0,0,.3)'
-          ].join(';');
-          banner.innerHTML = [
-            '<span>\uD83D\uDD04 Nova vers\u00E3o dispon\u00EDvel (' + remoteVer + '). Recarregue para atualizar.</span>',
-            '<button onclick="location.reload(true)" style="',
-              'background:#38A169;border:none;color:#fff;padding:7px 16px;',
-              'border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;',
-              'margin-left:12px;white-space:nowrap',
-            '">Atualizar agora</button>'
-          ].join('');
-          document.body.appendChild(banner);
-        }
-      }
-      if (data.pizza_unit_catalog && data.pizza_unit_catalog.length > 0) {
-        // Firebase tem catálogo das unidades — usar ele
-        unitCatalog = data.pizza_unit_catalog;
-        saveLocal('pizza_unit_catalog', unitCatalog);
-      } else if (!window._unitCatalogPushed) {
-        // Firebase não tem pizza_unit_catalog ainda — enviar o seed agora
-        window._unitCatalogPushed = true;
-        console.log('[Firebase] Enviando UNIT_SEED_CATALOG ao banco...');
-        db.ref('dados/pizza_unit_catalog').set(UNIT_SEED_CATALOG)
-          .then(() => console.log('[Firebase] UNIT_SEED_CATALOG enviado:', UNIT_SEED_CATALOG.length, 'itens'))
-          .catch(e => { console.error('[Firebase] Erro ao enviar unit_catalog:', e); window._unitCatalogPushed = false; });
-        // Garantir que unitCatalog local está correto enquanto aguarda
-        if (!unitCatalog || unitCatalog.length === 0) {
-          unitCatalog = UNIT_SEED_CATALOG.slice();
-          saveLocal('pizza_unit_catalog', unitCatalog);
-        }
-      }
-      if (data.pizza_confirmados) {
-        confirmados = data.pizza_confirmados;
-        saveLocal('pizza_confirmados', confirmados);
-      }
-      // Atualização inteligente: patch cirúrgico preferível ao render() completo
-      if (typeof render === 'function' && session && !window._fb.localWrite) {
-        clearTimeout(window._fb.renderThrottleTimer);
-        window._fb.renderThrottleTimer = setTimeout(() => {
-          if (!session || window._fb.localWrite) return;
-
-          const hasStockRows = document.querySelectorAll('tr[data-item-id]').length > 0;
-
-          if (hasStockRows && (currentView === 'cpd' || currentView === 'units')) {
-            // DOM já existe: fazer patch cirúrgico (preserva foco, categorias abertas)
-            try {
-              if (currentView === 'cpd') {
-                patchStockValues(cpd, false, {});
-              } else {
-                const ustock = unitStock[activeUnit] || {};
-                patchStockValues(ustock, false, {});
-                if (isCPD()) patchUnitReadValues(ustock, activeUnit);
-              }
-              return; // patch bem-sucedido — não precisa do render() completo
-            } catch(e) {
-              console.warn('[Render] Patch falhou, fazendo render completo:', e);
-            }
+  // Helper: throttle de render para updates externos (compartilhado por todos os listeners)
+  function _scheduleRender() {
+    if (!session || window._fb.localWrite) return;
+    clearTimeout(window._fb.renderThrottleTimer);
+    window._fb.renderThrottleTimer = setTimeout(() => {
+      if (!session || window._fb.localWrite) return;
+      const hasRows = document.querySelectorAll('tr[data-item-id]').length > 0;
+      if (hasRows && (currentView === 'cpd' || currentView === 'units')) {
+        try {
+          if (currentView === 'cpd') {
+            patchStockValues(cpd, false, {});
+          } else {
+            const ustock = unitStock[activeUnit] || {};
+            patchStockValues(ustock, false, {});
+            if (isCPD()) patchUnitReadValues(ustock, activeUnit);
           }
+          return;
+        } catch(e) { console.warn('[Render] Patch falhou:', e); }
+      }
+      render();
+    }, 800);
+  }
 
-          // Fallback: render() completo (primeira carga ou views que não têm patch)
-          render();
-        }, 800);
+  // ── 1. CATÁLOGO CPD (ouvir sempre — qualquer sessão pode precisar) ─────────
+  db.ref('dados/pizza_catalog').on('value', snap => {
+    const fbCatalog = snap.val();
+    const fbCatalogLen = Array.isArray(fbCatalog) ? fbCatalog.length : 0;
+
+    if (typeof catalog === 'undefined') return;
+
+    // Migração de versão
+    const CATALOG_VER = 'v13';
+    const APP_VERSION = '1.4.0';
+    window._APP_VERSION = APP_VERSION;
+
+    if (fbCatalogLen === 0) {
+      // Banco vazio — primeira execução
+      const catToSend = SEED_CATALOG.length > 0 ? SEED_CATALOG : catalog;
+      if (catToSend.length > 0) {
+        db.ref('dados/pizza_catalog').set(catToSend)
+          .then(() => db.ref('dados/pizza_catalog_ver').set(CATALOG_VER))
+          .catch(e => console.error('[Firebase] Erro catálogo inicial:', e));
+        catalog.length = 0; catToSend.forEach(i => catalog.push(i));
+      }
+    } else {
+      catalog.length = 0; fbCatalog.forEach(i => catalog.push(i));
+      saveLocal('pizza_catalog', catalog);
+      console.log('[Firebase] Catálogo CPD carregado:', fbCatalog.length, 'itens');
+      _gateStep('catalog', 'Catálogo carregado…');
+    }
+  });
+
+  // ── 2. CATÁLOGO UNIDADES ────────────────────────────────────────────────────
+  db.ref('dados/pizza_unit_catalog').on('value', snap => {
+    const val = snap.val();
+    if (val && val.length > 0) {
+      unitCatalog = val;
+      saveLocal('pizza_unit_catalog', unitCatalog);
+    } else if (!window._unitCatalogPushed) {
+      window._unitCatalogPushed = true;
+      db.ref('dados/pizza_unit_catalog').set(UNIT_SEED_CATALOG)
+        .catch(e => { console.error('[Firebase] Erro unit_catalog:', e); window._unitCatalogPushed = false; });
+      if (!unitCatalog || unitCatalog.length === 0) {
+        unitCatalog = UNIT_SEED_CATALOG.slice();
+        saveLocal('pizza_unit_catalog', unitCatalog);
       }
     }
-
-    console.log('[Firebase] Dados sincronizados');
   });
+
+  // ── 3. VERSÃO DO APP ────────────────────────────────────────────────────────
+  db.ref('dados/pizza_app_version').on('value', snap => {
+    const remoteVer = snap.val();
+    if (remoteVer && remoteVer !== window._APP_VERSION && !window._updateBannerShown) {
+      window._updateBannerShown = true;
+      if (!document.getElementById('update-banner')) {
+        const banner = document.createElement('div');
+        banner.id = 'update-banner';
+        banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a3a2a;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;font-family:DM Sans,sans-serif;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.3)';
+        banner.innerHTML = '<span>\uD83D\uDD04 Nova vers\u00E3o dispon\u00EDvel (' + remoteVer + '). Recarregue para atualizar.</span><button onclick="location.reload(true)" style="background:#38A169;border:none;color:#fff;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;margin-left:12px">Atualizar agora</button>';
+        document.body.appendChild(banner);
+      }
+    }
+  });
+
+  // ── 4. ESTOQUE CPD ──────────────────────────────────────────────────────────
+  db.ref('dados/pizza_cpd').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val();
+    if (!val) return;
+    Object.keys(cpd).forEach(k => delete cpd[k]);
+    Object.assign(cpd, val);
+    saveLocal('pizza_cpd', cpd);
+    _gateStep('stock', 'Estoque sincronizado…');
+    _scheduleRender();
+  });
+
+  // ── 5. MÍNIMOS / PREÇOS / MÍNIMOS-UNIDADE ──────────────────────────────────
+  db.ref('dados/pizza_minimums').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val(); if (!val) return;
+    Object.keys(minimums).forEach(k => delete minimums[k]);
+    Object.assign(minimums, val);
+    saveLocal('pizza_minimums', minimums);
+    _scheduleRender();
+  });
+  db.ref('dados/pizza_prices').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val(); if (!val) return;
+    Object.assign(prices, val);
+    saveLocal('pizza_prices', prices);
+  });
+  db.ref('dados/pizza_unit_minimums').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val(); if (!val) return;
+    if (!window.unitMinimums) window.unitMinimums = {};
+    Object.keys(window.unitMinimums).forEach(k => delete window.unitMinimums[k]);
+    Object.assign(window.unitMinimums, val);
+    saveLocal('pizza_unit_minimums', window.unitMinimums);
+  });
+
+  // ── 6. MOVIMENTAÇÕES E PEDIDOS (só CPD precisa em tempo real) ──────────────
+  db.ref('dados/pizza_movements').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val();
+    movements.length = 0;
+    if (Array.isArray(val)) val.forEach(m => movements.push(m));
+    saveLocal('pizza_movements', movements);
+    if (currentView === 'log' || currentView === 'historico') _scheduleRender();
+  });
+  db.ref('dados/pizza_orders').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val();
+    orders.length = 0;
+    if (Array.isArray(val)) val.forEach(o => orders.push(o));
+    saveLocal('pizza_orders', orders);
+  });
+
+  // ── 7. ENVIOS, REMESSAS, PENDÊNCIAS, CONTADOS ──────────────────────────────
+  db.ref('dados/pizza_envios').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val(); if (!val) return;
+    envios = val; saveLocal('pizza_envios', envios);
+    if (currentView === 'envios') _scheduleRender();
+  });
+  db.ref('dados/pizza_shipments').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val(); if (!val) return;
+    const prevTransitIds = new Set(shipments.filter(s=>s.status==='em_transito').map(s=>s.id));
+    shipments = Array.isArray(val) ? val : Object.values(val);
+    saveLocal('pizza_shipments', shipments);
+    // Notificar unidade sobre novos envios em trânsito
+    if (session && !isCPD()) {
+      shipments.filter(s => s.unit === session.unit && s.status === 'em_transito' && !prevTransitIds.has(s.id))
+        .forEach(s => {
+          if (typeof showPushNotif === 'function')
+            showPushNotif('\uD83D\uDE9A Entrega a caminho!', 'O CPD enviou ' + s.items.length + (s.items.length===1?' item':' itens') + ' para ' + s.unit + '.', []);
+        });
+    }
+    if (currentView === 'units' || currentView === 'cpd') _scheduleRender();
+  });
+  db.ref('dados/pizza_pendencias').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val();
+    pendencias = val || {};
+    saveLocal('pizza_pendencias', pendencias);
+  });
+  db.ref('dados/pizza_counted').on('value', snap => {
+    if (!window._fb.ready) return;
+    const val = snap.val(); if (!val) return;
+    countedMap = val;
+    saveLocal('pizza_counted', countedMap);
+  });
+
+  // ── 8. ESTOQUE DAS UNIDADES (granular por unidade) ─────────────────────────
+  // CPD ouve todas as unidades; cada unidade ouve apenas a si mesma
+  // Determinar unidades a ouvir com base na sessão salva no localStorage
+  // (mais seguro que isCPD() pois não depende de função do bloco principal)
+  const _savedSession = (() => { try { return JSON.parse(localStorage.getItem('pizza_session')); } catch(e) { return null; } })();
+  const _isCpdSession = _savedSession && _savedSession.unit === 'cpd';
+  const unitsToWatch = _isCpdSession
+    ? UNIT_NAMES                       // CPD ouve todas as unidades
+    : (_savedSession ? [_savedSession.unit] : UNIT_NAMES); // Unidade ouve só a si
+
+  const watchedUnitNames = Array.isArray(unitsToWatch) ? unitsToWatch : UNIT_NAMES;
+  watchedUnitNames.forEach(unitName => {
+    const slug = unitSlug(unitName);
+    db.ref('dados/pizza_units/' + slug).on('value', snap => {
+      if (!window._fb.ready) return;
+      const val = snap.val() || {};
+
+      // Proteção zero-flash: só aceita vazio se migração já confirmou que dados foram escritos
+      if (Object.keys(val).length === 0 && !window._migrationConfirmed && window._migrandoUnits) {
+        console.log('[Gate] Aguardando migração para', unitName, '— ignorando snapshot vazio');
+        return;
+      }
+
+      if (!unitStock[unitName]) unitStock[unitName] = {};
+      Object.keys(unitStock[unitName]).forEach(k => delete unitStock[unitName][k]);
+      Object.assign(unitStock[unitName], val);
+      try { localStorage.setItem('pizza_unit_' + slug, JSON.stringify(val)); } catch(e) {}
+
+      // Liberar gate de stock ao receber a própria unidade (ou qualquer unidade para o CPD)
+      _gateStep('stock', 'Estoque sincronizado…');
+      _scheduleRender();
+    });
+  });
+
+  console.log('[Firebase] Listeners separados registrados.');
 
   // Notificacoes em tempo real para a unidade logada
   if (typeof session !== 'undefined' && session) {
@@ -1693,6 +1765,25 @@ auth.onAuthStateChanged(user => {
 <body>
 
 <!-- LOGIN SCREEN -->
+<!-- Tela de carregamento — some quando dados essenciais chegam do Firebase -->
+<div id="loading-gate">
+  <div class="loading-logo">🍕</div>
+  <div style="text-align:center">
+    <div style="font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:#fff;margin-bottom:4px">Sesconetto's</div>
+    <div style="font-family:'DM Sans',sans-serif;font-size:11px;font-weight:600;letter-spacing:1.5px;color:rgba(255,255,255,.35);text-transform:uppercase">Controle de Estoque</div>
+  </div>
+  <div>
+    <div class="loading-bar-wrap"><div class="loading-bar" id="loading-bar"></div></div>
+  </div>
+  <div class="loading-steps" id="loading-steps">
+    <div class="loading-step active" id="ls-auth"    title="Autenticação"></div>
+    <div class="loading-step"        id="ls-catalog" title="Catálogo"></div>
+    <div class="loading-step"        id="ls-stock"   title="Estoque"></div>
+    <div class="loading-step"        id="ls-migrate" title="Migração"></div>
+  </div>
+  <div class="loading-label" id="loading-label">Conectando…</div>
+</div>
+
 <div id="login-screen">
   <div class="login-box">
     <div class="login-logo">
@@ -1824,6 +1915,10 @@ auth.onAuthStateChanged(user => {
       <div id="conn-badge" style="display:none;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.4px;background:rgba(197,48,48,.15);color:#C53030;border:1px solid rgba(197,48,48,.3)">
         <span id="conn-dot" style="width:6px;height:6px;border-radius:50%;background:#C53030;display:inline-block"></span>
         <span id="conn-label">SEM CONEXÃO</span>
+      </div>
+      <div id="pending-badge" style="display:none;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:10px;font-weight:600;background:rgba(214,158,46,.15);color:#975A16;border:1px solid rgba(214,158,46,.3)">
+        <span style="width:6px;height:6px;border-radius:50%;background:#D69E2E;display:inline-block;animation:pulse 1.5s infinite"></span>
+        <span id="pending-label">0 dados pendentes</span>
       </div>
       <span class="topbar-date" id="topbar-date"></span>
       <div class="user-badge"  id="user-badge" onclick="isMobile()?openDrawer():logout()" title="Menu / Sair">
@@ -2553,16 +2648,165 @@ function load(key, fallback) {
 }
 // Salva APENAS no localStorage, sem disparar sync Firebase
 // Usado pelo listener do Firebase para cachear dados recebidos
+// ═══ GATE DE CARREGAMENTO ═══════════════════════════════════════════════════
+// Controla a tela de carregamento com lógica de gate inteligente.
+// A tela só some quando: auth OK + catálogo OK + estoque OK + migração OK.
+const _gate = {
+  auth:    false,
+  catalog: false,
+  stock:   false,
+  migrate: false,
+  released: false,
+  _progress: 0,
+};
+
+function _gateStep(step, label) {
+  if (_gate[step]) return; // já marcado
+  _gate[step] = true;
+
+  const dot = document.getElementById('ls-' + step);
+  if (dot) { dot.classList.remove('active'); dot.classList.add('done'); }
+
+  // Avançar ponto ativo para o próximo
+  const order = ['auth','catalog','stock','migrate'];
+  const nextIdx = order.indexOf(step) + 1;
+  if (nextIdx < order.length) {
+    const nextDot = document.getElementById('ls-' + order[nextIdx]);
+    if (nextDot) nextDot.classList.add('active');
+  }
+
+  // Atualizar barra e label
+  const done = order.filter(s => _gate[s]).length;
+  const pct  = Math.round((done / order.length) * 100);
+  const bar  = document.getElementById('loading-bar');
+  const lbl  = document.getElementById('loading-label');
+  if (bar) bar.style.width = pct + '%';
+  if (lbl && label) lbl.textContent = label;
+
+  console.log('[Gate] ' + step + ' ✓ — ' + pct + '%');
+
+  // Verificar se todos os passos concluíram
+  if (order.every(s => _gate[s])) _gateRelease();
+}function _gateRelease() {
+  if (_gate.released) return;
+  _gate.released = true;
+  console.log('[Gate] Todos os passos concluídos — liberando app');
+  const bar = document.getElementById('loading-bar');
+  const lbl = document.getElementById('loading-label');
+  if (bar) bar.style.width = '100%';
+  if (lbl) lbl.textContent = 'Pronto!';
+
+  setTimeout(() => {
+    const gate = document.getElementById('loading-gate');
+    if (!gate) return;
+    gate.classList.add('hiding');
+    setTimeout(() => { gate.style.display = 'none'; }, 420);
+  }, 300); // pequena pausa para o usuário ver 100%
+}
+
+// Timeout de segurança: se algum passo travar por >15s, libera mesmo assim
+setTimeout(() => {
+  if (!_gate.released) {
+    console.warn('[Gate] Timeout de 15s — liberando app, alguns dados podem estar incompletos');
+    // Marcar todos como concluídos para liberar o gate
+    ['auth','catalog','stock','migrate'].forEach(s => {
+      _gate[s] = true;
+      const dot = document.getElementById('ls-' + s);
+      if (dot && !dot.classList.contains('done')) dot.classList.add('error');
+    });
+    const lbl = document.getElementById('loading-label');
+    if (lbl) lbl.textContent = 'Carregado (conex\u00E3o lenta)';
+    _gateRelease();
+  }
+}, 15000);
+
 function saveLocal(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
 }
 
 // Chaves que devem sincronizar com o Firebase em tempo real
 const FIREBASE_SYNC_KEYS = new Set([
-  'pizza_cpd', 'pizza_units', 'pizza_movements', 'pizza_orders',
+  'pizza_cpd', 'pizza_movements', 'pizza_orders',
   'pizza_catalog', 'pizza_minimums', 'pizza_prices', 'pizza_unit_minimums',
-  'pizza_envios', 'pizza_shipments', 'pizza_pendencias', 'pizza_confirmados'
+  'pizza_envios', 'pizza_shipments', 'pizza_pendencias', 'pizza_confirmados',
+  'pizza_counted', 'pizza_unit_catalog'
+  // Nota: pizza_units NÃO está aqui — salvo por unidade via saveUnit()
 ]);
+
+// Converter nome de unidade em chave Firebase-safe (sem espaços, lowercase)
+// Ex: 'Asa Sul' → 'asa_sul', 'Vicente Pires' → 'vicente_pires'
+function unitSlug(unitName) {
+  return (unitName || 'unknown')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')  // remove acentos
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+// Salvar um item específico do CPD atomicamente (transação — evita conflitos simultâneos)
+// Usa db.ref().transaction() que é atômico no Firebase: lê o valor atual e só escreve
+// se ele não mudou desde a leitura. Em caso de conflito, repete automaticamente.
+function saveItemAtomic(itemId, qty) {
+  if (!window._fb || !window._fb.ready || typeof db === 'undefined') {
+    // Offline: salvar localmente e enfileirar
+    cpd[itemId] = qty;
+    try { localStorage.setItem('pizza_cpd', JSON.stringify(cpd)); } catch(e) {}
+    if (!window._fb) window._fb = { ready: false, pendingWrites: [] };
+    window._fb.pendingWrites = window._fb.pendingWrites || [];
+    window._fb.pendingWrites.push({ type: 'atomic', itemId, qty });
+    return;
+  }
+  // Online: transação atômica no Firebase
+  window._fb.localWrite = true;
+  clearTimeout(window._fb.localWriteTimer);
+  window._fb.localWriteTimer = setTimeout(() => { window._fb.localWrite = false; }, 5000);
+
+  db.ref('dados/pizza_cpd/' + itemId).transaction(currentVal => {
+    // currentVal é o valor atual no Firebase — retornar o novo valor
+    // Se currentVal for null (item não existe), inicializa com 0 + nova qty
+    return qty;
+  }, (error, committed) => {
+    clearTimeout(window._fb.localWriteTimer);
+    if (error) {
+      console.error('[Firebase] Transação falhou para', itemId, error);
+      window._fb.localWrite = false;
+      // Fallback: tentar save() normal
+      save('pizza_cpd', cpd);
+    } else if (committed) {
+      // Transação bem-sucedida — confirmar no localStorage
+      try { localStorage.setItem('pizza_cpd', JSON.stringify(cpd)); } catch(e) {}
+      window._fb.localWriteTimer = setTimeout(() => { window._fb.localWrite = false; }, 300);
+    } else {
+      // Transação abortada (currentVal igual ao esperado — sem mudança necessária)
+      window._fb.localWrite = false;
+    }
+  }, false); // false = não ouvir mudanças intermediárias
+}
+
+// Salvar estoque de UMA unidade específica (granular — não reescreve todas)
+function saveUnit(unitName, stockData) {
+  const slug = unitSlug(unitName);
+  try { localStorage.setItem('pizza_unit_' + slug, JSON.stringify(stockData)); } catch(e) {}
+  if (window._fb && window._fb.ready && typeof db !== 'undefined') {
+    window._fb.localWrite = true;
+    clearTimeout(window._fb.localWriteTimer);
+    window._fb.localWriteTimer = setTimeout(() => { window._fb.localWrite = false; }, 5000);
+    db.ref('dados/pizza_units/' + slug).set(stockData)
+      .then(() => {
+        clearTimeout(window._fb.localWriteTimer);
+        window._fb.localWriteTimer = setTimeout(() => { window._fb.localWrite = false; }, 300);
+      })
+      .catch(e => {
+        console.warn('[Firebase] Erro ao salvar unidade ' + unitName + ':', e);
+        clearTimeout(window._fb.localWriteTimer);
+        window._fb.localWrite = false;
+      });
+  } else {
+    if (!window._fb) window._fb = { ready: false, pendingWrites: [] };
+    window._fb.pendingWrites = window._fb.pendingWrites || [];
+    window._fb.pendingWrites.push({ type: 'unit', unitName, data: stockData });
+  }
+}
 
 function save(key, data) {
   // Sempre salva no localStorage (cache local e fallback offline)
@@ -2595,7 +2839,7 @@ function save(key, data) {
         // Firebase ainda não pronto — enfileira para tentar em seguida
         if (!window._fb) window._fb = { ready: false, pendingWrites: [] };
         window._fb.pendingWrites = window._fb.pendingWrites || [];
-        window._fb.pendingWrites.push({ key, data });
+        window._fb.pendingWrites.push({ key, data, ts: Date.now() });
       }
     } catch(e) {
       console.warn('[Firebase] save() erro inesperado:', e);
@@ -2606,12 +2850,113 @@ function save(key, data) {
 // Processa writes pendentes assim que o Firebase ficar pronto
 function _flushPendingWrites() {
   if (!window._fb || !window._fb.pendingWrites) return;
+
+  // Carregar também writes que sobreviveram a um refresh (persistidos no localStorage)
+  try {
+    const stored = JSON.parse(localStorage.getItem('_pendingWrites') || '[]');
+    if (stored.length > 0) {
+      window._fb.pendingWrites = [...stored, ...window._fb.pendingWrites];
+      localStorage.removeItem('_pendingWrites');
+    }
+  } catch(e) {}
+
   const pending = window._fb.pendingWrites.splice(0);
   if (pending.length === 0) return;
   console.log('[Firebase] Processando', pending.length, 'writes pendentes...');
-  pending.forEach(({ key, data }) => {
-    db.ref('dados/' + key).set(data)
-      .catch(e => console.warn('[Firebase] Erro no write pendente ' + key + ':', e));
+
+  // Processar em sequência (FIFO garantido) com retry em caso de erro
+  let idx = 0;
+  function processNext() {
+    if (idx >= pending.length) {
+      _updatePendingBadge(0);
+      return;
+    }
+    const item = pending[idx++];
+    let promise;
+    if (item.type === 'unit') {
+      promise = db.ref('dados/pizza_units/' + unitSlug(item.unitName)).set(item.data);
+    } else if (item.type === 'atomic') {
+      promise = db.ref('dados/pizza_cpd/' + item.itemId).set(item.qty);
+    } else {
+      promise = db.ref('dados/' + item.key).set(item.data);
+    }
+    promise
+      .then(() => {
+        _updatePendingBadge(pending.length - idx);
+        processNext();
+      })
+      .catch(e => {
+        console.warn('[Firebase] Erro no write pendente:', e);
+        // Reinserir no início da fila para retry
+        window._fb.pendingWrites.unshift(item);
+        _updatePendingBadge(window._fb.pendingWrites.length);
+      });
+  }
+  _updatePendingBadge(pending.length);
+  processNext();
+}
+
+// Atualizar indicador visual de dados pendentes
+function _updatePendingBadge(count) {
+  const badge = document.getElementById('pending-badge');
+  if (!badge) return;
+  if (count > 0) {
+    badge.textContent = count + (count === 1 ? ' dado pendente' : ' dados pendentes');
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+// Persistir fila de writes pendentes no localStorage ao sair/refresh
+window.addEventListener('beforeunload', () => {
+  if (window._fb && window._fb.pendingWrites && window._fb.pendingWrites.length > 0) {
+    try {
+      // Não persistir dados muito grandes (limite 50 items)
+      const toSave = window._fb.pendingWrites.slice(0, 50);
+      localStorage.setItem('_pendingWrites', JSON.stringify(toSave));
+    } catch(e) {}
+  }
+});
+
+// ── MIGRAÇÃO ESTRUTURA DE UNIDADES (pizza_units flat → pizza_units/<slug>) ──
+// Detecta se pizza_units ainda tem estrutura antiga (objeto com chaves = nomes de unidades)
+// e migra automaticamente para a nova estrutura granular.
+function _migrarEstruturaPizzaUnits() {
+  if (window._migrandoUnits) return;
+  window._migrandoUnits = true;
+  db.ref('dados/pizza_units').once('value').then(snap => {
+    const val = snap.val();
+    if (!val || typeof val !== 'object') {
+      window._migrandoUnits = false;
+      window._migrationConfirmed = true;
+      _gateStep('migrate', 'Dados prontos!');
+      return;
+    }
+    // Verificar se é estrutura antiga: chaves são nomes de unidade (ex: 'Asa Sul')
+    const keys = Object.keys(val);
+    const isOldStructure = keys.some(k => UNIT_NAMES.includes(k));
+    if (!isOldStructure) {
+      window._migrandoUnits = false;
+      window._migrationConfirmed = true;
+      _gateStep('migrate', 'Dados prontos!');
+      return;
+    }
+    console.log('[Migração] Migrando pizza_units para estrutura granular...');
+    const writes = keys
+      .filter(k => UNIT_NAMES.includes(k))
+      .map(unitName => db.ref('dados/pizza_units/' + unitSlug(unitName)).set(val[unitName]));
+    Promise.all(writes).then(() => {
+      console.log('[Migração] Estrutura de unidades migrada!', keys.length, 'unidades');
+      window._migrandoUnits = false;
+      window._migrationConfirmed = true;
+      _gateStep('migrate', 'Dados prontos!');
+    }).catch(e => {
+      console.error('[Migração] Erro:', e);
+      window._migrandoUnits = false;
+      window._migrationConfirmed = true; // liberar guard mesmo com erro — melhor do que travar
+      _gateStep('migrate', 'Pronto (com aviso)');
+    });
   });
 }
 
@@ -2650,7 +2995,21 @@ if (!catalog || catalog.length === 0) {
 // faz a transição completa do catálogo preservando contagens por nome.
 let envios    = load('pizza_envios', null) || JSON.parse(JSON.stringify(ENVIOS_SEED));
 let cpd       = load('pizza_cpd', {});
-let unitStock = load('pizza_units', {});
+// Carregar estoque de unidades: tenta localStorage granular primeiro, fallback ao objeto geral
+let unitStock = (() => {
+  const consolidated = {};
+  let hasGranular = false;
+  UNIT_NAMES.forEach(unitName => {
+    const slug = (unitName).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'');
+    const granular = load('pizza_unit_' + slug, null);
+    if (granular) {
+      consolidated[unitName] = granular;
+      hasGranular = true;
+    }
+  });
+  // Fallback: se não tem granular, usa o objeto consolidado antigo
+  return hasGranular ? consolidated : load('pizza_units', {});
+})();
 let movements = load('pizza_movements', []);
 let prices    = load('pizza_prices', {}); // {itemId: unitPrice}
 let orders    = load('pizza_orders', []); // [{id, unit, userName, date, status, items:[{itemId,qty}]}]
@@ -2907,14 +3266,7 @@ function buildSidebarNav() {
       .some(b => allowed.includes(b.dataset.view));
     sec.style.display = visible ? '' : 'none';
   });
-}
-
-function buildBottomNav() {
-  // Bottom nav is hidden -- we use the drawer instead
-  // Keep this function as no-op for compatibility
-}
-
-function buildDrawerNav() {
+}function buildDrawerNav() {
   const allowed = allowedViews();
   const container = document.getElementById('drawer-nav-content');
   if (!container) return;
@@ -3043,38 +3395,7 @@ function el(tag, attrs={}, ...children) {
     e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
   }
   return e;
-}
-
-function itemSelect(selectId, withStock=false) {
-  const sel = el('select', {id: selectId});
-  sel.appendChild(el('option', {value:''}, 'Selecione um item...'));
-  CATEGORIES.forEach(cat => {
-    const items = catalog.filter(i => i.category === cat);
-    if (!items.length) return;
-    const grp = document.createElement('optgroup');
-    grp.label = cat;
-    items.forEach(i => {
-      const label = withStock
-        ? `${i.name}  (${cpd[i.id]||0} ${i.unit} no CPD)`
-        : i.name;
-      grp.appendChild(el('option', {value: i.id}, label));
-    });
-    sel.appendChild(grp);
-  });
-  return sel;
-}
-
-function qtyClass(q) {
-  if (q === 0) return 'qty-cell zero';
-  if (q < 5)  return 'qty-cell low';
-  return 'qty-cell ok';
-}
-
-function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit'});
-}
-
-function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
+}function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
   opts = opts || {};
   const useMin        = opts.useMin !== false;
   const pdfLabel      = opts.pdfLabel     || null;
@@ -3164,14 +3485,63 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
   const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
-    // Primeira vez: todas fechadas
     window._openCatsMap[_tableId] = {};
   }
   const openCats = window._openCatsMap[_tableId];
 
+  // Cache de linhas DOM por categoria — evita recriar elementos já montados
+  if (!window._rowCache) window._rowCache = {};
+  if (!window._rowCache[_tableId]) window._rowCache[_tableId] = {};
+  const rowCache = window._rowCache[_tableId];
+
   function renderRows(q) {
-    tbody.innerHTML = '';
-    const filtered = catSource.filter(i => i.name.toLowerCase().includes(q.toLowerCase()));
+    const isSearch = q && q.length > 0;
+
+    // Com busca: mostrar/ocultar linhas existentes sem recriar DOM
+    if (isSearch) {
+      const qLow = q.toLowerCase();
+      let visCount = 0;
+      tbody.querySelectorAll('tr[data-item-id]').forEach(tr => {
+        const name = (tr.getAttribute('data-item-name') || '').toLowerCase();
+        const show = name.includes(qLow);
+        tr.style.display = show ? '' : 'none';
+        if (show) visCount++;
+      });
+      // cabeçalhos de categoria: mostrar se têm itens visíveis
+      tbody.querySelectorAll('tr.cat-row').forEach(catTr => {
+        const cat = catTr.querySelector('[data-cat-name]');
+        if (!cat) return;
+        const catName = cat.getAttribute('data-cat-name');
+        const hasVisible = !!tbody.querySelector(`tr[data-cat="${CSS.escape(catName)}"]:not([style*="display: none"])`);
+        catTr.style.display = hasVisible ? '' : 'none';
+      });
+      let emptyRow = tbody.querySelector('tr.empty-search-row');
+      if (visCount === 0) {
+        if (!emptyRow) {
+          emptyRow = document.createElement('tr'); emptyRow.className = 'empty-search-row';
+          const td = document.createElement('td');
+          td.colSpan = colCount; td.style.cssText = 'text-align:center;color:var(--text-3);padding:16px;font-size:13px';
+          td.textContent = 'Nenhum item encontrado'; emptyRow.appendChild(td); tbody.appendChild(emptyRow);
+        }
+        emptyRow.style.display = '';
+      } else if (emptyRow) emptyRow.style.display = 'none';
+      return;
+    }
+
+    // Sem busca: restaurar visibilidade normal (sem recriar DOM se já existe)
+    tbody.querySelectorAll('tr.empty-search-row').forEach(r => r.remove());
+    if (tbody.querySelectorAll('tr[data-item-id]').length > 0) {
+      // Linhas já existem — só ajustar visibilidade
+      tbody.querySelectorAll('tr[data-item-id]').forEach(tr => {
+        const cat = tr.getAttribute('data-cat');
+        tr.style.display = openCats[cat] !== false ? '' : 'none';
+      });
+      tbody.querySelectorAll('tr.cat-row').forEach(catTr => { catTr.style.display = ''; });
+      return;
+    }
+
+    // Primeira vez: montar todo o DOM
+    const filtered = catSource;
     if (!filtered.length) {
       tbody.appendChild(el('tr', {}, el('td', {colspan: colCount, cls:'empty'}, 'Nenhum item encontrado')));
       return;
@@ -3189,8 +3559,10 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
 
       // Header row with toggle button
       const catTr = el('tr', {cls:'cat-row'});
+      catTr.setAttribute('data-cat-row', cat); // para busca
       const catTd = document.createElement('td');
       catTd.setAttribute('colspan', colCount);
+      catTd.setAttribute('data-cat-name', cat); // referência para busca
       catTd.style.cssText = 'padding:0;width:100%;';
       const catJanela = (lockByWindow && !isCPD())
         ? (categoriaLiberada(cat) ? ' janela-aberta' : ' janela-fechada')
@@ -3216,6 +3588,25 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
       togBtn.addEventListener('click', () => {
         openCats[cat] = !openCats[cat];
         togBtn.classList.toggle('open', openCats[cat]);
+
+        if (openCats[cat] && !rowCache[cat]) {
+          // LAZY: primeira vez abrindo — montar as linhas agora
+          catItems.forEach(item => {
+            const row = tbody.querySelector(`tr[data-item-id="${CSS.escape(item.id)}"]`);
+            if (!row) {
+              // linha ainda não existe no DOM — será inserida pelo renderRows atual
+              // Forçar renderRows a montar apenas esta categoria
+            }
+          });
+          rowCache[cat] = true;
+          // Re-renderizar só se as linhas ainda não foram montadas pelo renderRows inicial
+          const existingRows = tbody.querySelectorAll(`[data-cat="${CSS.escape(cat)}"]`);
+          if (existingRows.length === 0) {
+            // Montar as linhas desta categoria agora (renderRows já foi chamado, mas pulou as fechadas)
+            renderRows(''); // renderRows gerencia display baseado em openCats
+          }
+        }
+
         const rows = tbody.querySelectorAll(`[data-cat="${CSS.escape(cat)}"]`);
         rows.forEach(r => { r.style.display = openCats[cat] ? '' : 'none'; });
       });
@@ -3260,7 +3651,8 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
 
         const tr = el('tr', {});
         tr.setAttribute('data-cat', cat);
-        tr.setAttribute('data-item-id', item.id); // permite patch cirúrgico
+        tr.setAttribute('data-item-id', item.id);   // patch cirúrgico
+        tr.setAttribute('data-item-name', item.name); // busca sem recriar DOM
         if (!isOpen) tr.style.display = 'none';
         // Cor da linha: confirmados → classes CSS; CPD → background direto
         if (showConfirm && confirmed) {
@@ -3381,6 +3773,7 @@ function buildStockTable(stockObj, searchInputId, onUpdate, opts) {
         }
         tbody.appendChild(tr);
       });
+      rowCache[cat] = true; // marcar como montado no primeiro render
     });
   }
 
@@ -3718,195 +4111,7 @@ function printBatchPdf(batch) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 3000);
   toast('PDF gerado e baixado!');
-}
-
-// ORDERS
-
-function viewPedido() {
-  const myUnit = session.unit;
-  const wrap = el('div', {});
-  const cart = {};
-
-  // Unit info banner
-  const banner = el('div', {cls:'dest-box'});
-  banner.appendChild(el('label', {style:'margin-bottom:4px'}, 'Pedido de'));
-  banner.appendChild(el('div', {style:'font-size:16px;font-weight:700;color:var(--accent);font-family:"Playfair Display",serif'}, myUnit));
-  banner.appendChild(el('div', {style:'font-size:12px;color:var(--text-3);margin-top:3px'}, session.name + ' \u00B7 ' + session.role));
-  wrap.appendChild(banner);
-
-  // Template buttons (Feature 2) \u2014 declared first so renderRows can reference searchInp
-  const tmplBar = el('div', {style:'display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap'});
-  wrap.appendChild(tmplBar);
-
-  // Summary bar \u2014 declared before updateSummary() is called
-  const summaryCard = el('div', {cls:'batch-summary'});
-  wrap.appendChild(summaryCard);
-
-  // Search input \u2014 declared before clearCart/renderRows reference it
-  const searchWrap = el('div', {cls:'search-wrap', style:'margin:16px 0 12px'});
-  searchWrap.appendChild(el('span', {cls:'search-icon', html:'<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'}));
-  const searchInp = el('input', {type:'text', placeholder:'Buscar item...'});
-  searchWrap.appendChild(searchInp);
-  wrap.appendChild(searchWrap);
-
-  function getCartEntries() { return Object.entries(cart).filter(([_,q]) => q > 0); }
-
-  function updateSummary() {
-    summaryCard.innerHTML = '';
-    const entries = getCartEntries();
-    const count = entries.length;
-    const info = el('div', {cls:'batch-info'});
-    if (count === 0) {
-      info.appendChild(el('span', {cls:'batch-empty'}, 'Selecione os itens do pedido'));
-    } else {
-      const num = el('strong', {cls:'batch-count'}, String(count));
-      info.appendChild(num);
-      info.appendChild(document.createTextNode(' ' + (count===1?'item no pedido':'itens no pedido')));
-    }
-    summaryCard.appendChild(info);
-    const actions = el('div', {cls:'batch-actions'});
-    if (count > 0) actions.appendChild(el('button', {cls:'btn btn-outline btn-sm', onclick: clearCart}, 'Limpar'));
-    const confirmBtn = el('button', {cls:'btn btn-primary'}, `Confirmar Pedido${count>0?' ('+count+')':''}`);
-    if (count === 0) { confirmBtn.disabled=true; confirmBtn.style.opacity='0.45'; confirmBtn.style.cursor='not-allowed'; }
-    confirmBtn.addEventListener('click', confirmOrder);
-    actions.appendChild(confirmBtn);
-    summaryCard.appendChild(actions);
-  }
-
-  function clearCart() {
-    Object.keys(cart).forEach(k => delete cart[k]);
-    renderRows(searchInp.value);
-    updateSummary();
-  }
-
-  function confirmOrder() {
-    const entries = getCartEntries();
-    if (!entries.length) return;
-    const order = {
-      id: 'order_' + Date.now(),
-      unit: myUnit,
-      userName: session.name,
-      role: session.role,
-      date: new Date().toISOString(),
-      status: 'pendente',
-      items: entries.map(([itemId, qty]) => ({itemId, qty}))
-    };
-    orders.unshift(order);
-    save('pizza_orders', orders);
-    logAction('pedido', `${session.name} fez um pedido para ${myUnit} com ${entries.length} ${entries.length===1?'item':'itens'}`, {orderId: order.id, unit: myUnit, items: entries.length});
-    showPushNotif(`\uD83D\uDCCB Novo pedido \u2014 ${myUnit}`, `${session.name} enviou um pedido com ${entries.length} ${entries.length===1?'item':'itens'}`, [
-      {label:'Ver Separa\u00E7\u00E3o', fn:()=>setView('separacao')}
-    ]);
-    clearCart();
-    showOrderConfirmModal(order, entries, myUnit);
-  }
-
-  // Now load template (after searchInp and renderRows are accessible)
-  const tmpl = loadTemplate(myUnit);
-  if (tmpl.length > 0) {
-    const loadBtn = el('button', {cls:'template-btn', onclick:()=>{
-      tmpl.forEach(({itemId,qty})=>{ cart[itemId]=qty; });
-      renderRows(searchInp.value);
-      updateSummary();
-      toast(`Modelo carregado: ${tmpl.length} itens`);
-    }});
-    loadBtn.innerHTML = '\u2B50 Carregar modelo de pedido';
-    tmplBar.appendChild(loadBtn);
-  }
-
-  // Table
-  const tableWrap = el('div', {cls:'table-wrap'});
-  const table = el('table', {cls:'stock-table'});
-  const thead = el('thead', {});
-  thead.innerHTML = `<tr><th>Item</th><th class="col-unit" style="width:22%;text-align:right">Estoque ${myUnit}</th><th style="width:42%;text-align:right">Quantidade</th></tr>`;
-  table.appendChild(thead);
-  const tbody = el('tbody', {});
-  table.appendChild(tbody);
-  tableWrap.appendChild(table);
-  wrap.appendChild(tableWrap);
-
-  // openCats persiste entre renders usando um mapa global keyed por tableId
-  // Assim categorias abertas não fecham quando o Firebase atualiza dados
-  // _tableId = searchInp.id para garantir consistência com o setAttribute acima
-  const _tableId = searchInp.id;
-  if (!window._openCatsMap) window._openCatsMap = {};
-  if (!window._openCatsMap[_tableId]) {
-    // Primeira vez: todas fechadas
-    window._openCatsMap[_tableId] = {};
-  }
-  const openCats = window._openCatsMap[_tableId];
-  CATEGORIES.forEach(c => { openCats[c] = false; });
-
-  function renderRows(q) {
-    tbody.innerHTML = '';
-    const filtered = catalog.filter(i => i.name.toLowerCase().includes(q.toLowerCase()));
-    if (!filtered.length) { tbody.appendChild(el('tr',{},el('td',{colspan:'3',cls:'empty'},'Nenhum item encontrado'))); return; }
-    // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
-    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
-    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
-      .filter(c => allCatsInSource.includes(c));
-    // Categorias sem ordem definida ficam no fim
-    const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
-    const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
-    usedCats.forEach(cat => {
-      const catItems = filtered.filter(i => i.category === cat);
-      const inCart = catItems.filter(i => (cart[i.id]||0) > 0).length;
-      const isOpen = openCats[cat] !== false;
-      const catTr = el('tr', {cls:'cat-row'});
-      const catTd = document.createElement('td'); catTd.setAttribute('colspan','3'); catTd.style.padding='0';
-      const togBtn = el('button', {cls:'cat-toggle'+(isOpen?' open':'')});
-      togBtn.appendChild(document.createTextNode(cat));
-      togBtn.appendChild(el('span', {cls:'cat-count'}, inCart > 0 ? `${inCart}/${catItems.length} no pedido` : `${catItems.length} itens`));
-      togBtn.appendChild(el('span', {cls:'cat-chevron'}, '\u25BC'));
-      togBtn.addEventListener('click', () => {
-        openCats[cat]=!openCats[cat]; togBtn.classList.toggle('open',openCats[cat]);
-        tbody.querySelectorAll(`[data-cat="${CSS.escape(cat)}"]`).forEach(r => { r.style.display=openCats[cat]?'':'none'; });
-      });
-      catTd.appendChild(togBtn); catTr.appendChild(catTd); tbody.appendChild(catTr);
-
-      catItems.forEach(item => {
-        const ustock = (unitStock[myUnit]||{})[item.id] || 0;
-        const cartQty = cart[item.id] || 0;
-        const tr = el('tr', {}); tr.setAttribute('data-cat', cat);
-        if (!isOpen) tr.style.display = 'none';
-        const nameTd = el('td', {cls:'item-name'});
-        nameTd.textContent = item.name; nameTd.style.fontWeight = cartQty>0?'600':'400';
-        const inl = el('span', {cls:'item-unit-inline'}, `${item.unit} \u00B7 estoque: ${ustock}`);
-        nameTd.appendChild(inl); tr.appendChild(nameTd);
-        const stTd = el('td', {cls:'col-unit', style:'text-align:right'});
-        stTd.appendChild(el('span', {style:'color:var(--text-2)'}, `${ustock} ${item.unit}`));
-        tr.appendChild(stTd);
-        const ctrlTd = el('td', {cls:'qty-controls-cell', style:'text-align:right;padding:6px 16px'});
-        const wc = el('div', {cls:'qty-controls'});
-        const minBtn = el('button', {cls:'qty-btn-sm'}, '-');
-        const inp = el('input', {type:'text', inputmode:'decimal', pattern:'[0-9]*',
-          cls:'qty-inp-sm'+(cartQty>0?' has-val':''), value:cartQty>0?String(cartQty):'', placeholder:'0'});
-        const plusBtn = el('button', {cls:'qty-btn-sm'}, '+');
-        function setQty(nq) {
-          const q = Math.max(0, isNaN(nq)?0:nq);
-          if (q===0) { delete cart[item.id]; inp.value=''; nameTd.style.fontWeight='400'; }
-          else { cart[item.id]=q; inp.value=String(q); nameTd.style.fontWeight='600'; }
-          inp.className='qty-inp-sm'+(q>0?' has-val':'');
-          updateSummary();
-        }
-        minBtn.addEventListener('click', () => setQty((parseFloat(inp.value.replace(',','.'))||0)-1));
-        plusBtn.addEventListener('click', () => setQty((parseFloat(inp.value.replace(',','.'))||0)+1));
-        inp.addEventListener('change', () => setQty(parseFloat(inp.value.replace(',','.'))));
-        inp.addEventListener('blur',   () => setQty(parseFloat(inp.value.replace(',','.'))));
-        wc.appendChild(minBtn); wc.appendChild(inp); wc.appendChild(plusBtn);
-        ctrlTd.appendChild(wc); tr.appendChild(ctrlTd);
-        tbody.appendChild(tr);
-      });
-    });
-  }
-
-  updateSummary();
-  renderRows('');
-  searchInp.addEventListener('input', e => renderRows(e.target.value));
-  return wrap;
-}
-
-function showOrderConfirmModal(order, entries, unitName) {
+}function showOrderConfirmModal(order, entries, unitName) {
   const date    = new Date(order.date);
   const timeStr = date.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
   const count   = order.items.length;
@@ -3947,296 +4152,7 @@ function showOrderConfirmModal(order, entries, unitName) {
   overlay.appendChild(box);
   overlay.addEventListener('click', e => { if(e.target===overlay) overlay.remove(); });
   document.body.appendChild(overlay);
-}
-
-function viewSeparacao() {
-  const frag = document.createDocumentFragment();
-  // Units see only their own orders; CPD sees all
-  const visibleOrders = isCPD() ? orders : orders.filter(o => o.unit === session?.unit);
-  const pendentes = visibleOrders.filter(o => o.status === 'pendente');
-  const outros    = visibleOrders.filter(o => o.status !== 'pendente');
-
-  // Header metrics
-  const grid = el('div', {cls:'metrics-grid', style:'margin-bottom:20px'});
-  const mc1 = el('div', {cls:'metric-card'}); mc1.appendChild(el('div',{cls:'metric-label'},'Pendentes')); mc1.appendChild(el('div',{cls:'metric-value'+(pendentes.length>0?' danger':'')},String(pendentes.length))); grid.appendChild(mc1);
-  const mc2 = el('div', {cls:'metric-card'}); mc2.appendChild(el('div',{cls:'metric-label'},'Total de pedidos')); mc2.appendChild(el('div',{cls:'metric-value'},String(visibleOrders.length))); grid.appendChild(mc2);
-  frag.appendChild(grid);
-
-  if (visibleOrders.length === 0) {
-    const empty = el('div', {cls:'table-wrap'});
-    const emptyInner = el('div', {cls:'empty-orders'});
-    emptyInner.innerHTML = '<svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>';
-    emptyInner.appendChild(document.createElement('br'));
-    emptyInner.appendChild(document.createTextNode('Nenhum pedido recebido ainda'));
-    empty.appendChild(emptyInner);
-    frag.appendChild(empty);
-    return frag;
-  }
-
-  function buildOrderCard(order) {
-    const date    = new Date(order.date);
-    const dateStr = date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
-    const timeStr = date.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-    const count   = order.items.length;
-
-    const card = el('div', {cls:'order-card'});
-    const header = el('div', {cls:'order-card-header'});
-    const meta   = el('div', {cls:'order-meta'});
-    meta.appendChild(el('div', {cls:'order-unit'}, order.unit));
-    meta.appendChild(el('div', {cls:'order-sub'}, `${dateStr} \u0060s ${timeStr}  \u00B7  ${order.userName}  \u00B7  ${count} ${count===1?'produto':'produtos'}`));
-    const badge = el('span', {cls:`order-badge ${order.status}`},
-      order.status==='pendente'?'Pendente':order.status==='separando'?'Separando':'Enviado');
-    header.appendChild(meta); header.appendChild(badge); card.appendChild(header);
-
-    // Items list \u2014 with checklist if separando
-    const itemsList = el('div', {cls:'order-items-list'});
-    if (order.status === 'separando') {
-      // Initialize separation state if not exists
-      if (!order.separation) {
-        order.separation = {};
-        order.items.forEach(({itemId}) => { order.separation[itemId] = 'aguardando'; });
-      }
-      order.items.forEach(({itemId, qty}) => {
-        const item = catalog.find(c => c.id === itemId);
-        const state = order.separation[itemId] || 'aguardando';
-
-        const row = el('div', {cls:'sep-item-row', style: `
-          display:flex; align-items:center; gap:10px; padding:8px 10px;
-          border-bottom:1px solid var(--border-light);
-          background:${state==='separado'?'rgba(38,116,62,0.07)':state==='falta'?'var(--danger-bg)':''}; 
-          border-radius:4px; margin-bottom:2px;
-        `});
-
-        // Status icon
-        const icon = el('span', {style:'font-size:16px;flex-shrink:0;width:22px;text-align:center'},
-          state==='separado'?'\u2705':state==='falta'?'\u274C':'\u23F3');
-        row.appendChild(icon);
-
-        // Name + qty
-        const info = el('div', {style:'flex:1;min-width:0'});
-        info.appendChild(el('div', {cls:'order-item-name', style:`
-          font-weight:600; color:${state==='falta'?'var(--danger)':state==='separado'?'var(--success)':'var(--text)'};
-          text-decoration:${state==='falta'?'line-through':'none'};
-        `}, item?.name||'\u2014'));
-        info.appendChild(el('div', {style:'font-size:11px;color:var(--text-3)'}, `${qty} ${item?.unit||''}`));
-        row.appendChild(info);
-
-        // State buttons
-        const btnGroup = el('div', {style:'display:flex;gap:4px;flex-shrink:0'});
-
-        const mkBtn = (label, targetState, color) => {
-          const btn = el('button', {style:`
-            padding:4px 8px; border-radius:4px; font-size:11px; font-weight:700;
-            border:1.5px solid ${color}; cursor:pointer;
-            background:${state===targetState?color:'transparent'};
-            color:${state===targetState?'#fff':color};
-          `});
-          btn.textContent = label;
-          btn.addEventListener('click', () => {
-            order.separation[itemId] = state === targetState ? 'aguardando' : targetState;
-            save('pizza_orders', orders);
-            render();
-          });
-          return btn;
-        };
-
-        btnGroup.appendChild(mkBtn('\u2705 Separado', 'separado', '#26743E'));
-        btnGroup.appendChild(mkBtn('\u274C Em falta',  'falta',     '#C0392B'));
-        row.appendChild(btnGroup);
-        itemsList.appendChild(row);
-      });
-
-      // Progress summary
-      const sep   = Object.values(order.separation).filter(s=>s==='separado').length;
-      const falta = Object.values(order.separation).filter(s=>s==='falta').length;
-      const total = order.items.length;
-      const pct   = Math.round((sep/total)*100);
-      const summary = el('div', {style:'padding:10px 10px 4px;font-size:12px;color:var(--text-2);display:flex;gap:12px;align-items:center'});
-      summary.appendChild(el('span', {}, `\u2705 ${sep} separado${sep!==1?'s':''}`));
-      summary.appendChild(el('span', {style:'color:var(--danger)'}, `\u274C ${falta} em falta`));
-      summary.appendChild(el('span', {style:'color:var(--text-3)'}, `\u23F3 ${total-sep-falta} aguardando`));
-      const bar = el('div', {style:'flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden'});
-      const fill = el('div', {style:`width:${pct}%;height:100%;background:var(--success);transition:width .3s`});
-      bar.appendChild(fill); summary.appendChild(bar);
-      itemsList.appendChild(summary);
-
-    } else {
-      order.items.forEach(({itemId, qty}) => {
-        const item = catalog.find(c => c.id === itemId);
-        const state = order.separation?.[itemId];
-        const row = el('div', {cls:'order-item-row'});
-        if (state === 'falta') {
-          row.appendChild(el('span', {style:'color:var(--danger);margin-right:6px'}, '\u274C'));
-        } else if (state === 'separado') {
-          row.appendChild(el('span', {style:'color:var(--success);margin-right:6px'}, '\u2705'));
-        }
-        row.appendChild(el('span', {cls:'order-item-name', style:state==='falta'?'text-decoration:line-through;color:var(--text-3)':''}, item?.name||'\u2014'));
-        row.appendChild(el('span', {cls:'order-item-qty'}, `${qty} ${item?.unit||''}`));
-        itemsList.appendChild(row);
-      });
-    }
-    card.appendChild(itemsList);
-
-    // Actions
-    const actions = el('div', {cls:'order-actions'});
-    actions.appendChild(el('button', {cls:'btn btn-outline btn-sm', onclick: () => printOrderPdf(order)}, '\uD83D\uDCC4 PDF'));
-
-    if (order.status === 'pendente') {
-      const acceptBtn = el('button', {cls:'btn btn-primary btn-sm', style:'background:var(--accent)', onclick: () => {
-        order.status = 'separando';
-        order.separation = {};
-        order.items.forEach(({itemId}) => { order.separation[itemId] = 'aguardando'; });
-        save('pizza_orders', orders);
-        logAction('separacao', `${session.name} aceitou e iniciou a separa\u00E7\u00E3o do pedido de ${order.unit}`, {orderId: order.id, unit: order.unit});
-        render();
-        toast(`Separa\u00E7\u00E3o iniciada \u2014 ${order.unit}`);
-      }});
-      acceptBtn.innerHTML = '\u2713 Aceitar e Separar';
-      actions.appendChild(acceptBtn);
-    }
-
-    if (order.status === 'separando') {
-      const sep   = Object.values(order.separation||{}).filter(s=>s==='separado').length;
-      const falta = Object.values(order.separation||{}).filter(s=>s==='falta').length;
-      const total = order.items.length;
-      const allDone = sep + falta === total;
-
-      // Voltar para pendente
-      const voltarBtn = el('button', {cls:'btn btn-outline btn-sm', onclick: () => {
-        if (!confirm('Voltar o pedido para "Pendente"?')) return;
-        order.status = 'pendente';
-        delete order.separation;
-        save('pizza_orders', orders);
-        render();
-        toast('Pedido voltou para Pendente');
-      }});
-      voltarBtn.textContent = '\u2190 Voltar';
-      actions.appendChild(voltarBtn);
-
-      // Salvar progresso
-      const saveBtn = el('button', {cls:'btn btn-outline btn-sm', style:'color:var(--accent);border-color:var(--accent)', onclick: () => {
-        save('pizza_orders', orders);
-        toast('\uD83D\uDCBE Progresso salvo!');
-      }});
-      saveBtn.textContent = '\uD83D\uDCBE Salvar andamento';
-      actions.appendChild(saveBtn);
-
-      // Finalizar envio
-      const envBtn = el('button', {
-        cls:'btn btn-primary btn-sm',
-        style: allDone ? 'background:var(--success)' : 'background:var(--success);opacity:0.6',
-        onclick: () => {
-          if (!allDone) {
-            if (!confirm(`Ainda h\u00E1 ${total-sep-falta} item${total-sep-falta!==1?'s':''} aguardando. Finalizar mesmo assim e marcar como "em falta"?`)) return;
-            // Mark remaining awaiting as falta
-            order.items.forEach(({itemId}) => {
-              if ((order.separation[itemId]||'aguardando')==='aguardando')
-                order.separation[itemId]='falta';
-            });
-          }
-          // Build actual items to send (only 'separado')
-          const toSend = order.items.filter(i => order.separation[i.itemId]==='separado');
-          if (toSend.length === 0) {
-            alert('Nenhum item foi marcado como separado. Marque ao menos um item para enviar.');
-            return;
-          }
-          order.status = 'aguardando_recebimento';
-          order.sentAt = new Date().toISOString();
-          order.itemsSent = toSend;
-          order.itemsFalta = order.items.filter(i => order.separation[i.itemId]==='falta');
-          save('pizza_orders', orders);
-          const faltaCount = order.itemsFalta.length;
-          logAction('envio',
-            faltaCount > 0
-              ? `${session.name} enviou pedido para ${order.unit}: ${toSend.length} item${toSend.length!==1?'s':''} separado${toSend.length!==1?'s':''}, ${faltaCount} em falta`
-              : `${session.name} enviou pedido completo para ${order.unit}: ${toSend.length} item${toSend.length!==1?'s':''}`,
-            {orderId: order.id, unit: order.unit, sent: toSend.length, falta: faltaCount}
-          );
-          render();
-          showPushNotif(
-            '\uD83D\uDE9A Pedido enviado \u2014 ' + order.unit,
-            `${toSend.length} item${toSend.length!==1?'s':''} enviado${toSend.length!==1?'s':''}${faltaCount>0?` \u00B7 ${faltaCount} item${faltaCount!==1?'s':''} em falta`:''}`,
-            []
-          );
-          toast(`Pedido enviado: ${toSend.length} item${toSend.length!==1?'s':''} separado${toSend.length!==1?'s':''}`);
-        }
-      });
-      envBtn.textContent = allDone
-        ? '\u2713 Finalizar e Enviar'
-        : `\u2713 Finalizar e Enviar (${sep}/${total})`;
-      actions.appendChild(envBtn);
-    }
-
-    if (order.status === 'aguardando_recebimento') {
-      // CPD sees "Aguardando Recebimento"
-      if (isCPD()) {
-        actions.appendChild(el('span', {style:'font-size:11px;font-weight:700;color:#2A4B9A;background:#EAF0FF;padding:3px 10px;border-radius:20px'}, '\uD83D\uDCE6 Aguardando recebimento'));
-      } else {
-        // Unit sees notification banner + confirm button
-        const recvBtn = el('button', {cls:'btn btn-primary btn-sm', style:'background:var(--success)', onclick:()=>showReceiptModal(order)});
-        recvBtn.textContent = '\u2705 Confirmar Recebimento';
-        actions.appendChild(recvBtn);
-      }
-    }
-
-    if (order.status === 'recebido') {
-      actions.appendChild(el('span', {style:'font-size:11px;font-weight:700;color:var(--success);background:var(--success-bg);padding:3px 10px;border-radius:20px'}, '\u2705 Recebido'));
-    }
-    if (order.status === 'recebido_incompleto') {
-      const divCount = (order.divergences||[]).length;
-      actions.appendChild(el('span', {style:'font-size:11px;font-weight:700;color:var(--danger);background:var(--danger-bg);padding:3px 10px;border-radius:20px'}, `\u26A0\uFE0F Recebido incompleto \u2014 ${divCount} item${divCount!==1?'s':''} faltante${divCount!==1?'s':''}`));
-    }
-    // Follow-up badge \u2014 show on pending orders that came from an incomplete receipt
-    if (order.isFollowUp) {
-      const badge = el('span', {style:'font-size:10px;font-weight:700;color:#7A4A00;background:#FFF3CD;padding:2px 8px;border-radius:20px;margin-left:4px'}, '\uD83D\uDD04 Reenvio');
-      actions.insertBefore(badge, actions.firstChild);
-    }
-
-    card.appendChild(actions);
-    return card;
-  }
-  const pendentesGrp    = visibleOrders.filter(o => o.status === 'pendente');
-  const separandoGrp    = visibleOrders.filter(o => o.status === 'separando');
-  const aguardandoGrp   = visibleOrders.filter(o => o.status === 'aguardando_recebimento');
-  const fechadosGrp     = visibleOrders.filter(o => ['recebido','recebido_incompleto','enviado'].includes(o.status));
-
-  if (pendentesGrp.length > 0) {
-    frag.appendChild(el('p', {style:'font-weight:700;font-size:13px;color:var(--danger);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px'}, `\u23F3  Aguardando separa\u00E7\u00E3o (${pendentesGrp.length})`));
-    pendentesGrp.forEach(o => frag.appendChild(buildOrderCard(o)));
-  }
-  if (separandoGrp.length > 0) {
-    frag.appendChild(el('p', {style:'font-weight:700;font-size:13px;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 10px'}, `\uD83D\uDCE6  Separando (${separandoGrp.length})`));
-    separandoGrp.forEach(o => frag.appendChild(buildOrderCard(o)));
-  }
-  if (aguardandoGrp.length > 0) {
-    frag.appendChild(el('p', {style:'font-weight:700;font-size:13px;color:#2A4B9A;text-transform:uppercase;letter-spacing:.5px;margin:20px 0 10px'}, `\uD83D\uDE9A  Aguardando recebimento (${aguardandoGrp.length})`));
-    aguardandoGrp.forEach(o => frag.appendChild(buildOrderCard(o)));
-  }
-  if (fechadosGrp.length > 0) {
-    const fechadosHeader = el('p', {style:'font-weight:700;font-size:13px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 6px;cursor:pointer;display:flex;align-items:center;gap:6px'});
-    fechadosHeader.innerHTML = `<span>\u25B6</span> Fechados (${fechadosGrp.length})`;
-    let fechadosOpen = false;
-    const fechadosWrap = el('div', {style:'display:none'});
-    fechadosGrp.forEach(o => fechadosWrap.appendChild(buildOrderCard(o)));
-    fechadosHeader.addEventListener('click', () => {
-      fechadosOpen = !fechadosOpen;
-      fechadosWrap.style.display = fechadosOpen ? '' : 'none';
-      fechadosHeader.querySelector('span').textContent = fechadosOpen ? '\u25BC' : '\u25B6';
-    });
-    frag.appendChild(fechadosHeader);
-    frag.appendChild(fechadosWrap);
-  }
-  if (visibleOrders.length === 0) {
-    const empty = el('div', {cls:'table-wrap'});
-    const emptyInner = el('div', {cls:'empty-orders', style:'padding:40px;text-align:center;color:var(--text-3)'});
-    emptyInner.textContent = 'Nenhum pedido recebido ainda';
-    empty.appendChild(emptyInner);
-    frag.appendChild(empty);
-  }
-  return frag;
-}
-
-function printStockPdf(unitLabel, stockObj, onlyCategory) {
+}function printStockPdf(unitLabel, stockObj, onlyCategory) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('pt-BR', {day:'2-digit', month:'long', year:'numeric'});
   const timeStr = now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
@@ -4898,7 +4814,8 @@ function showIncompleteModal(order) {
       const recv = parseFloat(inp.value)||0;
       unitStock[order.unit][itemId] = (unitStock[order.unit][itemId]||0) + recv;
     });
-    save('pizza_units', unitStock);
+    // Salvar estoque de cada unidade afetada individualmente (granular)
+    Object.keys(unitStock).forEach(u => saveUnit(u, unitStock[u]));
 
     // Mark original order as received incomplete
     order.status = 'recebido_incompleto';
@@ -5382,7 +5299,8 @@ function viewCpd() {
   const inner = el('div', {style:'padding:14px 18px 18px'});
   inner.appendChild(buildStockTable(cpd, 'cpd-search', (itemId, qty) => {
     cpd[itemId] = qty;
-    save('pizza_cpd', cpd);
+    // Usar transação atômica para o item individual — evita conflito com outros usuários do CPD
+    saveItemAtomic(itemId, qty);
   }, { useMin: true, pdfLabel: 'CPD' }));
   tableBlock.appendChild(inner);
   frag.appendChild(tableBlock);
@@ -5478,7 +5396,7 @@ function viewUnits() {
   inner.appendChild(buildStockTable(ustock, 'unit-search', canEditUnit ? (itemId, qty) => {
     if (!unitStock[activeUnit]) unitStock[activeUnit] = {};
     unitStock[activeUnit][itemId] = qty;
-    save('pizza_units', unitStock);
+    saveUnit(activeUnit, unitStock[activeUnit]); // granular: só salva esta unidade
   } : undefined, {
     useMin: false,
     pdfLabel: activeUnit,
@@ -5781,7 +5699,9 @@ function showShipmentReceiptModal(shipment) {
     shipment.receivedAt = new Date().toISOString();
     if (faltantes.length > 0) shipment.faltantes = faltantes;
 
-    save('pizza_units', unitStock);
+    // Salvar estoque de cada unidade afetada individualmente
+    const affectedUnits = new Set([shipment.unit]);
+    affectedUnits.forEach(u => saveUnit(u, unitStock[u] || {}));
     save('pizza_cpd', cpd);
     save('pizza_shipments', shipments);
     save('pizza_movements', movements);
@@ -6120,7 +6040,8 @@ function viewBatchOperation(mode) {
     }
 
     save('pizza_cpd', cpd);
-    save('pizza_units', unitStock);
+    // Salvar estoque de cada unidade afetada individualmente
+    Object.keys(unitStock).forEach(u => saveUnit(u, unitStock[u]));
     save('pizza_movements', movements);
 
     const savedBatch = movements.filter(m => m.batchId === batchId);
@@ -6170,10 +6091,14 @@ function viewBatchOperation(mode) {
   const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
-    // Primeira vez: todas fechadas
     window._openCatsMap[_tableId] = {};
   }
   const openCats = window._openCatsMap[_tableId];
+
+  // Cache de linhas DOM por categoria — evita recriar elementos já montados
+  if (!window._rowCache) window._rowCache = {};
+  if (!window._rowCache[_tableId]) window._rowCache[_tableId] = {};
+  const rowCache = window._rowCache[_tableId];
   CATEGORIES.forEach(c => {
     if (preload) {
       const hasItem = preload.items.some(({itemId}) => {
@@ -6234,7 +6159,8 @@ function viewBatchOperation(mode) {
 
         const tr = el('tr', {});
         tr.setAttribute('data-cat', cat);
-        tr.setAttribute('data-item-id', item.id); // permite patch cirúrgico
+        tr.setAttribute('data-item-id', item.id);   // patch cirúrgico
+        tr.setAttribute('data-item-name', item.name); // busca sem recriar DOM
         if (!isOpen) tr.style.display = 'none';
 
         // Name + inline stock info (mobile)
@@ -6317,6 +6243,7 @@ function viewBatchOperation(mode) {
 
         tbody.appendChild(tr);
       });
+      rowCache[cat] = true; // marcar como montado no primeiro render
     });
   }
 
@@ -6485,10 +6412,14 @@ function viewCatalogo() {
   const _tableId = searchInp.id;
   if (!window._openCatsMap) window._openCatsMap = {};
   if (!window._openCatsMap[_tableId]) {
-    // Primeira vez: todas fechadas
     window._openCatsMap[_tableId] = {};
   }
   const openCats = window._openCatsMap[_tableId];
+
+  // Cache de linhas DOM por categoria — evita recriar elementos já montados
+  if (!window._rowCache) window._rowCache = {};
+  if (!window._rowCache[_tableId]) window._rowCache[_tableId] = {};
+  const rowCache = window._rowCache[_tableId];
 
     const renderRows = (search) => {
       tbody.innerHTML = '';
