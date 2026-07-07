@@ -5825,11 +5825,9 @@ function viewBatchOperation(mode) {
       tbody.appendChild(el('tr', {}, el('td', {colspan:'3', cls:'empty'}, 'Nenhum item encontrado')));
       return;
     }
-    // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
-    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
-    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
-      .filter(c => allCatsInSource.includes(c));
-    // Categorias sem ordem definida ficam no fim
+    // Derivar categorias do catálogo CPD
+    const allCatsInSource = [...new Set(catalog.map(i => i.category))];
+    const catOrder = CATEGORIES.filter(c => allCatsInSource.includes(c));
     const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
     const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
     usedCats.forEach(cat => {
@@ -6136,13 +6134,11 @@ function viewCatalogo() {
         tbody.appendChild(el('tr', {}, el('td', {colspan:'6', cls:'empty'}, 'Nenhum item encontrado')));
         return;
       }
-      // Derivar categorias do próprio catSource (suporta CPD e Unidades com listas diferentes)
-    const allCatsInSource = [...new Set(catSource.map(i => i.category))];
-    const catOrder = (catSource === catalog ? CATEGORIES : UNIT_CATEGORIES)
-      .filter(c => allCatsInSource.includes(c));
-    // Categorias sem ordem definida ficam no fim
-    const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
-    const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
+      // Derivar categorias do catálogo ativo da aba (CPD ou Unidades)
+      const allCatsInSource = [...new Set(tabCatalog.map(i => i.category))];
+      const catOrder = (isCpdTab ? CATEGORIES : UNIT_CATEGORIES).filter(c => allCatsInSource.includes(c));
+      const extraCats = allCatsInSource.filter(c => !catOrder.includes(c));
+      const usedCats = [...catOrder, ...extraCats].filter(cat => filtered.some(i => i.category === cat));
       usedCats.forEach(cat => {
         const catItems = filtered.filter(i => i.category === cat);
         const isOpen = openCats[cat] === true; // fechado por padrão
