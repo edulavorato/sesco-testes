@@ -73,7 +73,7 @@
 
     const meta = document.createElement('meta');
     meta.name = 'viewport';
-    meta.content = `width=device-width, initial-scale=${scale}, viewport-fit=cover`;
+    meta.content = `width=device-width, initial-scale=${scale}, maximum-scale=1.0, user-scalable=no, viewport-fit=cover`;
     document.head.appendChild(meta);
   })();
 </script>
@@ -82,6 +82,14 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Playfair+Display:wght@700&family=Lato:wght@400;700&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  /* ── Touch global: elimina delay de 300ms em todo o app ─────────────────── */
+  html { touch-action: manipulation; }
+  button, [role="button"], input, select, a {
+    touch-action: manipulation;   /* sem double-tap zoom nos controles */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
 
   /* Remove native number spinners */
   input[type="number"]::-webkit-inner-spin-button,
@@ -272,6 +280,8 @@
   .content {
     padding: 28px 32px;
     flex: 1;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
   }
 
   /* CARDS */
@@ -371,7 +381,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 16px;
+    padding: 11px 16px; /* +3px para área de toque maior */
+    min-height: 48px;   /* mínimo recomendado para touch */
     background: #EAF2EC;
     border: none;
     border-bottom: 1.5px solid var(--border);
@@ -384,6 +395,9 @@
     color: var(--accent-dark);
     text-align: left;
     transition: background .12s;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
   }
   .cat-toggle:hover { background: #DDF0E3; }
   .cat-toggle .cat-chevron {
@@ -539,14 +553,29 @@
     border: 1.5px solid var(--border);
     background: var(--surface);
     color: var(--text-2);
-    font-size: 16px; font-weight: 400;
+    font-size: 16px; font-weight: 500;
     cursor: pointer; line-height: 1;
     display: flex; align-items: center; justify-content: center;
+    /* Sem transition no active — feedback tátil instantâneo */
     transition: border-color .12s, color .12s, background .12s;
     flex-shrink: 0;
+    user-select: none;
+    /* Área de toque maior que o visual (padding invisível) */
+    position: relative;
+  }
+  .qty-btn-sm::before {
+    content: '';
+    position: absolute;
+    inset: -8px; /* 8px extra em cada direção = 42px+ de área touch */
   }
   .qty-btn-sm:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
-  .qty-btn-sm:active { transform: scale(0.93); }
+  .qty-btn-sm:active {
+    transform: scale(0.88);
+    background: var(--accent-light);
+    border-color: var(--accent);
+    color: var(--accent);
+    transition: transform 0s, background 0s, border-color 0s, color 0s; /* instantâneo */
+  }
   .qty-inp-sm {
     width: 52px; height: 32px;
     border: 1.5px solid var(--border);
@@ -558,6 +587,9 @@
     background: var(--surface);
     outline: none;
     transition: border-color .12s;
+    user-select: text;          /* seleção ok no input */
+    -webkit-user-select: text;
+    caret-color: var(--accent); /* cursor visível */
   }
   .qty-inp-sm:focus { border-color: var(--accent); }
   .qty-inp-sm.has-val { border-color: var(--success); color: var(--success); }
@@ -877,9 +909,17 @@
 
   /* Mobile table fixes */
   @media (max-width: 599px) {
-    .qty-inp-sm { width: 54px; min-width: 54px; max-width: 54px; height: 36px; font-size: 15px; }
-    .qty-btn-sm { width: 34px; min-width: 34px; height: 36px; font-size: 18px; flex-shrink: 0; }
-    .qty-controls { gap: 4px; flex-wrap: nowrap; }
+    .qty-inp-sm {
+      width: 58px; min-width: 58px; max-width: 58px;
+      height: 40px; font-size: 16px; font-weight: 700;
+    }
+    .qty-btn-sm {
+      width: 40px; min-width: 40px; height: 40px;
+      font-size: 22px; font-weight: 400;
+      border-radius: 8px;
+    }
+    .qty-btn-sm::before { inset: -4px; } /* área menor no mobile pois botão já é grande */
+    .qty-controls { gap: 6px; flex-wrap: nowrap; }
 
     /* Hide MÍN column on mobile stock-table */
     .stock-table .col-min { display: none; }
@@ -3665,14 +3705,44 @@ function el(tag, attrs={}, ...children) {
           if (rowLocked) { inp.disabled = true; inp.title = 'Contagem dispon\u00EDvel ' + proximaJanela(item.category); }
           const plusBtn = el('button', {cls:'qty-btn-sm'}, '+');
           if (rowLocked) plusBtn.disabled = true;
-          minBtn.addEventListener('click', () => {
-            const cur = parseFloat(inp.value.replace(',', '.')) || 0;
-            updateQty(item.id, cur - 1, inp, tr, inlineUnit);
-          });
-          plusBtn.addEventListener('click', () => {
-            const cur = parseFloat(inp.value.replace(',', '.')) || 0;
-            updateQty(item.id, cur + 1, inp, tr, inlineUnit);
-          });
+          // Long press: clique rápido = ±1; segurar = ±1 a cada 100ms
+          {
+            let _pt = null, _pi = null;
+            const _getQ = () => parseFloat(inp.value.replace(',','.')) || 0;
+            const _doStep = d => {
+              // Botões +/- usam debounce reduzido (300ms) para resposta mais rápida
+              const q = _getQ() + d;
+              const clampedQ = Math.max(0, isNaN(q) ? 0 : q);
+              inp.value = String(clampedQ);
+              // Atualizar visual imediatamente
+              if (typeof inlineUnit !== 'undefined' && inlineUnit) {
+                inlineUnit.textContent = clampedQ > 0 ? String(clampedQ) : '';
+              }
+              // Cancelar timer anterior e agendar com 300ms
+              clearTimeout(saveTimer[item.id]);
+              saveTimer[item.id] = setTimeout(() => {
+                if (typeof onUpdate === 'function') {
+                  const raw = parseFloat(inp.value.replace(',','.'));
+                  onUpdate(item.id, Math.max(0, isNaN(raw) ? 0 : raw));
+                }
+              }, 300);
+            };
+            const _start = d => { _doStep(d); _pt = setTimeout(() => { _pi = setInterval(() => _doStep(d), 100); }, 450); };
+            const _stop  = () => { clearTimeout(_pt); clearInterval(_pi); };
+            minBtn.addEventListener('mousedown',   () => _start(-1));
+            minBtn.addEventListener('mouseup',     _stop);
+            minBtn.addEventListener('mouseleave',  _stop);
+            minBtn.addEventListener('touchstart',  e => { e.preventDefault(); _start(-1); }, {passive:false});
+            minBtn.addEventListener('touchend',    e => { e.preventDefault(); _stop(); },   {passive:false});
+            minBtn.addEventListener('touchcancel', _stop);
+            plusBtn.addEventListener('mousedown',  () => _start(+1));
+            plusBtn.addEventListener('mouseup',    _stop);
+            plusBtn.addEventListener('mouseleave', _stop);
+            plusBtn.addEventListener('touchstart', e => { e.preventDefault(); _start(+1); }, {passive:false});
+            plusBtn.addEventListener('touchend',   e => { e.preventDefault(); _stop(); },   {passive:false});
+            plusBtn.addEventListener('touchcancel',_stop);
+          }
+          inp.addEventListener('focus', () => { setTimeout(() => inp.select(), 50); }); // seleciona tudo ao focar
           inp.addEventListener('change', () => { updateQty(item.id, inp.value, inp, tr, inlineUnit); });
           inp.addEventListener('blur',   () => { updateQty(item.id, inp.value, inp, tr, inlineUnit); });
           wrap2.appendChild(minBtn); wrap2.appendChild(inp); wrap2.appendChild(plusBtn);
@@ -4137,14 +4207,44 @@ function printBatchPdf(batch) {
 
   // Build PDF rows
   const W = 595, ML = 40, MR = 40, TW = W - ML - MR;
-  // Coluna MIN só aparece no CPD; unidades não usam estoque mínimo
   const showMinCol = unitLabel === 'CPD';
+
+  // Coluna "A Enviar": calcular para unidades a partir do plano de envios
+  // Detectar o próximo dia de entrega (SEG=1, QUA=3, SEX=5 em getDay())
+  const _hoje = new Date();
+  const _diaSemana = _hoje.getDay(); // 0=dom,...,6=sab
+  const _diaMap = {1:'SEG', 3:'QUA', 5:'SEX'};
+  // Encontrar o próximo dia de entrega (hoje se for dia de entrega, senão o próximo)
+  let _enviarDay = null;
+  for (let d = 0; d <= 6; d++) {
+    const dd = (_diaSemana + d) % 7;
+    if (_diaMap[dd]) { _enviarDay = _diaMap[dd]; break; }
+  }
+  // Construir mapa nome_normalizado → quantidade a enviar para esta unidade
+  const _norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+  const _enviarMap = {};
+  if (!showMinCol && _enviarDay && typeof envios === 'object' && envios) {
+    Object.values(envios).forEach(catData => {
+      if (!catData.items) return;
+      catData.items.forEach(planItem => {
+        const q = planItem.qty && planItem.qty[unitLabel] && planItem.qty[unitLabel][_enviarDay];
+        if (q > 0) _enviarMap[_norm(planItem.name)] = q;
+      });
+    });
+  }
+  const showEnviarCol = !showMinCol && Object.keys(_enviarMap).length > 0;
+
+  // Larguras de coluna dinâmicas
   const colW = showMinCol
-    ? [TW*0.55, TW*0.15, TW*0.15, TW*0.15]
-    : [TW*0.64, TW*0.18, TW*0.18];
+    ? [TW*0.55, TW*0.15, TW*0.15, TW*0.15]          // ITEM | UN | MIN | QTD
+    : showEnviarCol
+      ? [TW*0.52, TW*0.12, TW*0.18, TW*0.18]         // ITEM | UN | QTD | A ENVIAR
+      : [TW*0.64, TW*0.18, TW*0.18];                  // ITEM | UN | QTD
   const colX = showMinCol
     ? [ML, ML+colW[0], ML+colW[0]+colW[1], ML+colW[0]+colW[1]+colW[2]]
-    : [ML, ML+colW[0], ML+colW[0]+colW[1]];
+    : showEnviarCol
+      ? [ML, ML+colW[0], ML+colW[0]+colW[1], ML+colW[0]+colW[1]+colW[2]]
+      : [ML, ML+colW[0], ML+colW[0]+colW[1]];
   let y = 0;
   const ops = [];
   const pages = [];
@@ -4179,14 +4279,26 @@ function printBatchPdf(batch) {
     y -= 8;
     ops.push(`${ML} ${y} m ${W-MR} ${y} l S`);
     y -= 14;
-    // Col headers
+    // Col headers com cores distintas por coluna
+    ops.push(`0 0 0 rg`); // preto para ITEM e UN
     ops.push(`BT /F1 9 Tf ${colX[0]} ${y} Td (ITEM) Tj ET`);
     ops.push(`BT /F1 9 Tf ${colX[1]} ${y} Td (UN.) Tj ET`);
     if (showMinCol) {
+      ops.push(`0.5 0.3 0 rg`); // marrom para MIN
       ops.push(`BT /F1 9 Tf ${colX[2]} ${y} Td (MIN.) Tj ET`);
+      ops.push(`0.1 0.45 0.2 rg`); // verde escuro para QTD
       ops.push(`BT /F1 9 Tf ${colX[3]} ${y} Td (QTD) Tj ET`);
-    } else {
+      ops.push(`0 0 0 rg`);
+    } else if (showEnviarCol) {
+      ops.push(`0.1 0.45 0.2 rg`); // verde para QTD
       ops.push(`BT /F1 9 Tf ${colX[2]} ${y} Td (QTD) Tj ET`);
+      ops.push(`0.1 0.25 0.65 rg`); // azul para A ENVIAR
+      ops.push(`BT /F1 9 Tf ${colX[3]} ${y} Td (A ENVIAR - ${_enviarDay}) Tj ET`);
+      ops.push(`0 0 0 rg`);
+    } else {
+      ops.push(`0.1 0.45 0.2 rg`);
+      ops.push(`BT /F1 9 Tf ${colX[2]} ${y} Td (QTD) Tj ET`);
+      ops.push(`0 0 0 rg`);
     }
     y -= 6;
     ops.push(`${ML} ${y} m ${W-MR} ${y} l S`);
@@ -4245,17 +4357,43 @@ function printBatchPdf(batch) {
       if (isZero) ops.push(`1 0.9 0.9 rg ${ML} ${y-2} ${TW} 13 re f 0 0 0 rg`);
       else if (isLow) ops.push(`1 0.97 0.87 rg ${ML} ${y-2} ${TW} 13 re f 0 0 0 rg`);
       // Verificar se item foi confirmado na janela atual
+      // Verificar confirmação: unidades usam unitCatalog (não catalog do CPD)
       const itemConfirmed = !showMinCol && unitLabel !== 'CPD'
-        ? isConfirmed(unitLabel, (catalog.find(i => i.name === item.name) || {}).id || '')
-        : true; // CPD sempre "confirmado" (não usa esse sistema)
+        ? isConfirmed(unitLabel, (unitCatalog.find(i => i.name === item.name) || {}).id || '')
+        : true;
       const itemName = itemConfirmed ? item.name : ('! nao contado ! ' + item.name);
+      // ITEM (vermelho se não contado, preto se contado)
+      ops.push(itemConfirmed ? `0 0 0 rg` : `0.7 0.1 0.1 rg`);
       ops.push(`BT /F2 8 Tf ${colX[0]+3} ${y+1} Td ${pdfStr(itemName)} Tj ET`);
+      ops.push(`0 0 0 rg`);
       ops.push(`BT /F2 8 Tf ${colX[1]+3} ${y+1} Td ${pdfStr(item.unit)} Tj ET`);
       if (showMinCol) {
+        ops.push(`0.5 0.3 0 rg`);
         ops.push(`BT /F2 8 Tf ${colX[2]+3} ${y+1} Td (${item.min > 0 ? item.min : '-'}) Tj ET`);
+        ops.push(`0.1 0.45 0.2 rg`);
         ops.push(`BT /F1 9 Tf ${colX[3]+3} ${y+1} Td (${item.qty}) Tj ET`);
-      } else {
+        ops.push(`0 0 0 rg`);
+      } else if (showEnviarCol) {
+        // QTD em verde
+        ops.push(`0.1 0.45 0.2 rg`);
         ops.push(`BT /F1 9 Tf ${colX[2]+3} ${y+1} Td (${item.qty !== undefined ? item.qty : '-'}) Tj ET`);
+        // A ENVIAR em azul
+        const _aEnviar = _enviarMap[_norm(item.name)] || 0;
+        ops.push(`0.1 0.25 0.65 rg`);
+        ops.push(`BT /F1 9 Tf ${colX[3]+3} ${y+1} Td (${_aEnviar > 0 ? _aEnviar : '-'}) Tj ET`);
+        // Fundo azul claro na célula A ENVIAR se tiver valor
+        if (_aEnviar > 0) {
+          const envX = colX[3]; const colWEnv = colW[3];
+          ops.splice(ops.length - 1, 0,
+            `0.88 0.93 0.98 rg ${envX} ${y-2} ${colWEnv} 13 re f 0 0 0 rg`,
+            `0.1 0.25 0.65 rg`
+          );
+        }
+        ops.push(`0 0 0 rg`);
+      } else {
+        ops.push(`0.1 0.45 0.2 rg`);
+        ops.push(`BT /F1 9 Tf ${colX[2]+3} ${y+1} Td (${item.qty !== undefined ? item.qty : '-'}) Tj ET`);
+        ops.push(`0 0 0 rg`);
       }
       ops.push(`${ML} ${y-3} m ${W-MR} ${y-3} l 0.9 0.9 0.9 RG S 0 0 0 RG`);
       y -= 14;
@@ -5929,14 +6067,25 @@ function viewBatchOperation(mode) {
           updateSummary();
         }
 
-        minBtn.addEventListener('click', () => {
-          const cur = parseFloat(inp.value.replace(',', '.')) || 0;
-          setQty(cur - 1);
-        });
-        plusBtn.addEventListener('click', () => {
-          const cur = parseFloat(inp.value.replace(',', '.')) || 0;
-          setQty(cur + 1);
-        });
+        {
+          let _pt2 = null, _pi2 = null;
+          const _getQ2 = () => parseFloat(inp.value.replace(',','.')) || 0;
+          const _doS2  = d => setQty(_getQ2() + d);
+          const _start2 = d => { _doS2(d); _pt2 = setTimeout(() => { _pi2 = setInterval(() => _doS2(d), 100); }, 450); };
+          const _stop2  = () => { clearTimeout(_pt2); clearInterval(_pi2); };
+          minBtn.addEventListener('mousedown',   () => _start2(-1));
+          minBtn.addEventListener('mouseup',     _stop2);
+          minBtn.addEventListener('mouseleave',  _stop2);
+          minBtn.addEventListener('touchstart',  e => { e.preventDefault(); _start2(-1); }, {passive:false});
+          minBtn.addEventListener('touchend',    e => { e.preventDefault(); _stop2(); },   {passive:false});
+          minBtn.addEventListener('touchcancel', _stop2);
+          plusBtn.addEventListener('mousedown',  () => _start2(+1));
+          plusBtn.addEventListener('mouseup',    _stop2);
+          plusBtn.addEventListener('mouseleave', _stop2);
+          plusBtn.addEventListener('touchstart', e => { e.preventDefault(); _start2(+1); }, {passive:false});
+          plusBtn.addEventListener('touchend',   e => { e.preventDefault(); _stop2(); },   {passive:false});
+          plusBtn.addEventListener('touchcancel',_stop2);
+        }
         inp.addEventListener('change', () => setQty(parseFloat(inp.value.replace(',', '.'))));
         inp.addEventListener('blur',   () => setQty(parseFloat(inp.value.replace(',', '.'))));
 
