@@ -4358,9 +4358,17 @@ function printBatchPdf(batch) {
       else if (isLow) ops.push(`1 0.97 0.87 rg ${ML} ${y-2} ${TW} 13 re f 0 0 0 rg`);
       // Verificar se item foi confirmado na janela atual
       // Verificar confirmação: unidades usam unitCatalog (não catalog do CPD)
-      const itemConfirmed = !showMinCol && unitLabel !== 'CPD'
-        ? isConfirmed(unitLabel, (unitCatalog.find(i => i.name === item.name) || {}).id || '')
-        : true;
+      // "Não contado" = qty === 0 E não confirmado via botão ✓
+      // qty > 0 = foi contado mesmo sem clicar no botão de confirmação
+      let itemConfirmed = true;
+      if (!showMinCol && unitLabel !== 'CPD') {
+        if (item.qty > 0) {
+          itemConfirmed = true;
+        } else {
+          const catalogItem = unitCatalog.find(i => i.name === item.name);
+          itemConfirmed = catalogItem ? isConfirmed(unitLabel, catalogItem.id) : false;
+        }
+      }
       const itemName = itemConfirmed ? item.name : ('! nao contado ! ' + item.name);
       // ITEM (vermelho se não contado, preto se contado)
       ops.push(itemConfirmed ? `0 0 0 rg` : `0.7 0.1 0.1 rg`);
