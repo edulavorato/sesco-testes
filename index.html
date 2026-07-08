@@ -4692,7 +4692,7 @@ let prices    = load('pizza_prices', {}); // {itemId: unitPrice}
 let orders    = load('pizza_orders', []); // [{id, unit, userName, date, status, items:[{itemId,qty}]}]
 let minimums  = load('pizza_minimums', {}); // {itemId: minQty} \u2014 feature 1: stock minimums
 let templates = load('pizza_templates', {}); // {unitName: [{itemId,qty}]} \u2014 feature 2: recurring orders
-let shipments  = load([]);
+let shipments  = [];
 let countedMap = load('pizza_counted', {});  // {unit: {windowKey: {itemId: true}}}
 
 // Chave única da janela de contagem atual (ex: "2026-06-15-0" = domingo 15/06)
@@ -6651,20 +6651,6 @@ function showIncompleteModal(order) {
 }
 
 // Also show unit notification banner when order status is aguardando_recebimento
-function checkPendingReceiptNotifications() {
-  return; // Fluxo de pedidos desativado — unidades não fazem mais pedidos
-  if (!session || isCPD()) return;
-  const myPending = orders.filter(o => o.unit === session.unit && o.status === 'aguardando_recebimento' && !o._notified);
-  myPending.forEach(order => {
-    order._notified = true;
-    showPushNotif(
-      '\uD83D\uDE9A Pedido a caminho!',
-      `Seu pedido de ${order.items.length} ${order.items.length===1?'produto':'produtos'} foi enviado pelo CPD.`,
-      []
-    );
-  });
-}
-
 // VIEW: Dashboard consolidado (Feature 5)
 function viewDashboard() {
   const frag = document.createDocumentFragment();
@@ -6828,9 +6814,7 @@ function viewDashboard() {
 function viewCpd() {
   const frag = document.createDocumentFragment();
 
-  // Banner de divergências de entregas (itens faltantes)
-  const divBanner = buildDivergenceBanner();
-  if (divBanner) frag.appendChild(divBanner);
+
   const inStock = catalog.filter(i => (cpd[i.id]||0) > 0).length;
   const zeroStock = catalog.length - inStock;
 
@@ -7405,7 +7389,6 @@ function render() {
   }
 
   // Notificações de recebimento pendentes
-  setTimeout(checkPendingReceiptNotifications, 500);
 }
 
 // INIT
