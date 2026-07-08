@@ -6697,7 +6697,8 @@ function viewDashboard() {
   }
 
   function openDashModal(label, stockObj) {
-    const allIssues = catalog.filter(i => {
+    const modalCatalog = (label === 'CPD') ? catalog : getUnitCatalog(label).catalog;
+    const allIssues = modalCatalog.filter(i => {
       const qty = stockObj[i.id] || 0;
       const min = minimums[i.id] || 0;
       return qty === 0 || (min > 0 && qty < min);
@@ -6753,14 +6754,16 @@ function viewDashboard() {
   }
 
   function buildSummaryCard(label, stockObj) {
-    const allIssues = catalog.filter(i => {
+    // Usar catálogo correto por unidade (não o catálogo do CPD)
+    const cardCatalog = (label === 'CPD') ? catalog : getUnitCatalog(label).catalog;
+    const allIssues = cardCatalog.filter(i => {
       const qty = stockObj[i.id] || 0;
       const min = minimums[i.id] || 0;
       return qty === 0 || (min > 0 && qty < min);
     });
-    const zeroCount = catalog.filter(i => (stockObj[i.id]||0) === 0).length;
+    const zeroCount = cardCatalog.filter(i => (stockObj[i.id]||0) === 0).length;
     const lowCount  = allIssues.filter(i => (stockObj[i.id]||0) > 0).length;
-    const okCount   = catalog.length - zeroCount - lowCount;
+    const okCount   = cardCatalog.length - zeroCount - lowCount;
 
     const card = el('div', {cls:'dash-summary-card', onclick: () => openDashModal(label, stockObj)});
 
@@ -6884,9 +6887,10 @@ function viewUnits() {
     activeUnit = session.unit;
   }
 
-  const ustock  = unitStock[activeUnit] || {};
-  const inStock = catalog.filter(i => (ustock[i.id]||0) > 0).length;
-  const zero    = catalog.length - inStock;
+  const ustock     = unitStock[activeUnit] || {};
+  const uCatalog   = getUnitCatalog(activeUnit).catalog; // catálogo específico desta unidade
+  const inStock    = uCatalog.filter(i => (ustock[i.id]||0) > 0).length;
+  const zero       = uCatalog.length - inStock;
 
   const metrics = el('div', {cls:'metrics-grid'});
   const mc = el('div', {cls:'metric-card'});
