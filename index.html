@@ -488,79 +488,35 @@
   .loading-step.error   { background: #FC8181; }
 
   /* ── Painel Envios do Dia ───────────────────────────────────────────────── */
-  .envios-dia-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 18px; flex-wrap: wrap; gap: 10px;
-  }
-  .envios-dia-day-badge {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 12px; border-radius: 20px;
-    font-size: 11px; font-weight: 700; letter-spacing: .5px;
-    text-transform: uppercase;
-    background: var(--accent-light, #e6f4ec); color: var(--accent-dark, #2a6049);
-    border: 1px solid var(--accent, #2a6049);
-  }
-  .envios-unit-section { margin-bottom: 24px; }
-  .envios-unit-title {
-    font-family: 'Lato', sans-serif; font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .8px; color: var(--accent-dark);
-    padding: 10px 16px; background: #EAF2EC;
-    border-radius: var(--radius) var(--radius) 0 0;
-    border: 1px solid var(--border); border-bottom: none;
-  }
-  .envios-table { width: 100%; border-collapse: collapse; }
-  .envios-table th {
-    font-family: 'Lato', sans-serif; font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .5px; color: var(--text-3);
-    padding: 8px 12px; text-align: left; background: var(--surface-2);
-    border: 1px solid var(--border); border-top: none;
-  }
-  .envios-table th.num { text-align: right; }
-  .envios-table td {
-    padding: 9px 12px; font-size: 13px; color: var(--text);
-    border-bottom: 1px solid var(--border); vertical-align: middle;
-  }
-  .envios-table td.num { text-align: right; font-weight: 600; }
-  .envios-table tr:last-child td { border-bottom: none; }
-  .envios-table tr:nth-child(even) td { background: var(--surface-2); }
-  .envios-status {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;
-  }
-  .envios-status.ok      { background: rgba(56,161,105,.12); color: #276749; }
-  .envios-status.falta   { background: rgba(197,48,48,.12);  color: #C53030; }
-  .envios-status.sobra   { background: rgba(160,160,160,.12);color: var(--text-3); }
-  .envios-summary-row {
-    display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 20px;
-  }
-  .envios-summary-card {
-    flex: 1; min-width: 120px; padding: 14px 18px;
-    background: var(--surface); border: 1.5px solid var(--border);
-    border-radius: var(--radius); text-align: center;
-  }
-  .envios-summary-card .label { font-size: 11px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-  .envios-summary-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
-  .envios-summary-card.ok    .value { color: #276749; }
-  .envios-summary-card.falta .value { color: #C53030; }
-  .envios-summary-card.total .value { color: var(--text); }
-  .envios-filter-tabs {
-    display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
-  }
-  .envios-filter-tab {
-    padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
-    cursor: pointer; border: 1.5px solid var(--border);
-    background: var(--surface); color: var(--text-2);
-    transition: all .15s;
-  }
-  .envios-filter-tab.active {
-    background: var(--accent); color: #fff; border-color: var(--accent);
-  }
-  @media (max-width: 600px) {
-    .envios-table th:nth-child(3),
-    .envios-table td:nth-child(3),
-    .envios-table th:nth-child(4),
-    .envios-table td:nth-child(4) { display: none; }
-  }
+  .envios-wrap { border: 1.5px solid var(--border); border-radius: var(--radius); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .envios-matrix { width: 100%; border-collapse: collapse; min-width: 680px; }
+  .envios-matrix th, .envios-matrix td { padding: 7px 10px; text-align: center; vertical-align: middle; font-size: 12px; }
+  .envios-matrix thead tr:first-child th { background: var(--surface-2); color: var(--text-3); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1.5px solid var(--border); }
+  .envios-matrix thead tr:first-child th:first-child { text-align: left; }
+  .envios-matrix thead tr:first-child th.unit-hdr { background: #EAF2EC; color: var(--accent-dark, #2a6049); border-left: 1.5px solid var(--border); }
+  .envios-matrix thead tr:nth-child(2) th { background: var(--surface-2); color: var(--text-3); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; border-bottom: 1.5px solid var(--border); }
+  .envios-matrix thead tr:nth-child(2) th.sub-first { border-left: 1.5px solid var(--border); }
+  .envios-matrix tbody td { border-bottom: 1px solid var(--border); color: var(--text); }
+  .envios-matrix tbody td:first-child { text-align: left; font-weight: 500; }
+  .envios-matrix tbody tr:last-child td { border-bottom: none; }
+  .envios-matrix tbody tr:nth-child(even) td { background: var(--surface-2); }
+  .envios-matrix .u-sep { border-left: 1.5px solid var(--border); }
+  .envios-matrix .val-env { font-weight: 700; color: var(--accent-dark, #2a6049); }
+  .envios-matrix .val-dash { color: var(--text-3); }
+  .envios-matrix .val-cpd-low { font-weight: 700; color: #C53030; }
+  .envios-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .envios-badge.ok    { background: rgba(56,161,105,.12); color: #276749; }
+  .envios-badge.falta { background: rgba(197,48,48,.12);  color: #C53030; }
+  .envios-summary-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .envios-summary-card { flex: 1; min-width: 110px; padding: 12px 16px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); text-align: center; }
+  .envios-summary-card .e-lbl { font-size: 11px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .envios-summary-card .e-val { font-size: 26px; font-weight: 700; margin-top: 4px; color: var(--text); }
+  .envios-summary-card.ok    .e-val { color: #276749; }
+  .envios-summary-card.falta .e-val { color: #C53030; }
+  .envios-filter-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .envios-filter-tab { padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-2); transition: all .15s; touch-action: manipulation; }
+  .envios-filter-tab.active { background: var(--accent, #2a6049); color: #fff; border-color: var(--accent, #2a6049); }
+  .envios-dia-day-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 11px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; background: #EAF2EC; color: var(--accent-dark, #2a6049); border: 1px solid var(--accent, #2a6049); }
 
   /* Botão confirmar item */
   .confirm-btn {
@@ -7038,69 +6994,84 @@ function viewUnits() {
 // ═══ ENVIOS DO DIA ═══════════════════════════════════════════════════════════
 function viewEnviosDia() {
   const frag = document.createDocumentFragment();
-
-  // Detectar próximo dia de entrega
   const day     = nextEnviarDay();
-  const dayFull = { SEG:'Segunda-feira', QUA:'Quarta-feira', SEX:'Sexta-feira' }[day] || day;
+  const dayFull = {SEG:'Segunda-feira', QUA:'Quarta-feira', SEX:'Sexta-feira'}[day] || day;
+  const _norm   = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 
   // ── Cabeçalho ──────────────────────────────────────────────────────────────
-  const header = el('div', {cls:'envios-dia-header'});
-  const titleWrap = el('div', {style:'display:flex;align-items:center;gap:12px;flex-wrap:wrap'});
-  titleWrap.appendChild(el('h2', {cls:'table-title'}, 'Envios do Dia'));
-  titleWrap.appendChild(el('span', {cls:'envios-dia-day-badge'}, '🚚 ' + dayFull));
-  header.appendChild(titleWrap);
-  frag.appendChild(header);
+  const hdrWrap = el('div', {style:'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px'});
+  hdrWrap.appendChild(el('h2', {cls:'table-title'}, 'Envios do Dia'));
+  const dayBadge = el('span', {cls:'envios-dia-day-badge'}, '\uD83D\uDE9A ' + dayFull);
+  hdrWrap.appendChild(dayBadge);
+  frag.appendChild(hdrWrap);
 
-  // ── Construir dados consolidados de todas as unidades ─────────────────────
-  // Formato: [{ unitName, itemName, unit, minDia, estoqueUnidade, aEnviar, estoqueCPD, situacao }]
-  const _norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
-  const rows = [];
+  // ── Coletar todos os itens que precisam de envio ───────────────────────────
+  // Um item entra na tabela se ao menos uma unidade tiver A Enviar > 0 neste dia
+  // Estrutura: Map de itemName → { unit, aEnviar, estoqueUnidade } por unidade
+  const itemMap = new Map(); // itemName → { category, unit, cpdId, perUnit: {unitName: {est, aEnv}} }
 
   UNIT_NAMES.forEach(unitName => {
-    const ucat    = getUnitCatalog(unitName).catalog;
-    const ustock  = unitStock[unitName] || {};
-    const minMap  = getMinPerDay(unitName);
+    const ucat   = getUnitCatalog(unitName).catalog;
+    const ustock = unitStock[unitName] || {};
+    const minMap = getMinPerDay(unitName);
 
     ucat.forEach(item => {
       const minDia = (minMap[item.name] && minMap[item.name][day]) || 0;
-      if (minDia === 0) return; // sem mínimo para este dia — não enviar
-      const estoqueUnidade = ustock[item.id] || 0;
-      const aEnviar = Math.max(0, minDia - estoqueUnidade);
-      if (aEnviar === 0) return; // unidade já tem o suficiente
+      if (minDia === 0) return;
+      const est     = ustock[item.id] || 0;
+      const aEnviar = Math.max(0, minDia - est);
+      if (aEnviar === 0) return; // unidade já tem — não incluir
 
-      // Verificar estoque do CPD pelo nome (IDs podem diferir)
-      const cpdItem = catalog.find(c => _norm(c.name) === _norm(item.name));
-      const estoqueCPD = cpdItem ? (cpd[cpdItem.id] || 0) : 0;
-      const falta = Math.max(0, aEnviar - estoqueCPD);
-
-      rows.push({
-        unitName, itemName: item.name, unit: item.unit,
-        minDia, estoqueUnidade, aEnviar, estoqueCPD, falta,
-        situacao: falta > 0 ? 'falta' : 'ok',
-        category: item.category,
-      });
+      if (!itemMap.has(item.name)) {
+        // Localizar item no catálogo CPD pelo nome (para pegar estoque CPD)
+        const cpdItem = catalog.find(c => _norm(c.name) === _norm(item.name));
+        itemMap.set(item.name, {
+          name: item.name, unit: item.unit, category: item.category,
+          estCPD: cpdItem ? (cpd[cpdItem.id] || 0) : 0,
+          perUnit: {}
+        });
+      }
+      itemMap.get(item.name).perUnit[unitName] = { est, aEnviar };
     });
   });
 
+  // Enriquecer com totais e situação
+  const rows = [];
+  itemMap.forEach(row => {
+    const totalAEnviar = UNIT_NAMES.reduce((s, u) => s + (row.perUnit[u] ? row.perUnit[u].aEnviar : 0), 0);
+    const falta   = Math.max(0, totalAEnviar - row.estCPD);
+    row.totalAEnviar = totalAEnviar;
+    row.falta    = falta;
+    row.situacao = falta > 0 ? 'falta' : 'ok';
+    rows.push(row);
+  });
+
+  // Ordenar: faltas primeiro, depois por categoria, depois por nome
+  rows.sort((a,b) => {
+    if (a.situacao !== b.situacao) return a.situacao === 'falta' ? -1 : 1;
+    if (a.category !== b.category) return a.category.localeCompare(b.category);
+    return a.name.localeCompare(b.name);
+  });
+
   // ── Sumário ────────────────────────────────────────────────────────────────
-  const totalEnvios = rows.length;
+  const totalItems  = rows.length;
   const totalFaltas = rows.filter(r => r.situacao === 'falta').length;
   const totalOk     = rows.filter(r => r.situacao === 'ok').length;
 
   const summaryRow = el('div', {cls:'envios-summary-row'});
-  [[totalEnvios,'Total a Enviar','total'],
-   [totalOk,'CPD tem estoque','ok'],
-   [totalFaltas,'Faltam no CPD','falta']].forEach(([val, label, cls]) => {
-    const card = el('div', {cls:'envios-summary-card ' + cls});
-    card.appendChild(el('div', {cls:'label'}, label));
-    card.appendChild(el('div', {cls:'value'}, String(val)));
+  [['Total a enviar', totalItems, ''],
+   ['CPD tem estoque', totalOk, 'ok'],
+   ['Faltam no CPD',  totalFaltas, 'falta']].forEach(([lbl, val, cls]) => {
+    const card = el('div', {cls:'envios-summary-card' + (cls ? ' ' + cls : '')});
+    card.appendChild(el('div', {cls:'e-lbl'}, lbl));
+    card.appendChild(el('div', {cls:'e-val'}, String(val)));
     summaryRow.appendChild(card);
   });
   frag.appendChild(summaryRow);
 
   if (rows.length === 0) {
     const empty = el('div', {cls:'table-wrap', style:'padding:32px;text-align:center;color:var(--text-3)'});
-    empty.textContent = '✅ Nenhum item a enviar para ' + dayFull + '. Todas as unidades têm estoque suficiente.';
+    empty.textContent = '\u2705 Nenhum item a enviar para ' + dayFull + '. Todas as unidades t\u00EAm estoque suficiente.';
     frag.appendChild(empty);
     return frag;
   }
@@ -7108,96 +7079,114 @@ function viewEnviosDia() {
   // ── Filtros ────────────────────────────────────────────────────────────────
   let activeFilter = 'todos';
   const filterTabs = el('div', {cls:'envios-filter-tabs'});
-  const filters = [
-    { key:'todos',  label:'Todos (' + totalEnvios + ')' },
-    { key:'falta',  label:'⚠️ Falta no CPD (' + totalFaltas + ')' },
-    { key:'ok',     label:'✅ CPD tem estoque (' + totalOk + ')' },
-  ];
+  const tableWrap  = el('div', {});
+  frag.appendChild(filterTabs);
+  frag.appendChild(tableWrap);
 
-  // ── Tabelas por unidade ────────────────────────────────────────────────────
-  const tablesWrap = el('div', {});
+  function buildMatrix() {
+    tableWrap.innerHTML = '';
+    const filtered = activeFilter === 'todos' ? rows :
+                     rows.filter(r => r.situacao === activeFilter);
 
-  function buildTables() {
-    tablesWrap.innerHTML = '';
-    const filtered = activeFilter === 'todos' ? rows : rows.filter(r => r.situacao === activeFilter);
+    if (filtered.length === 0) {
+      const empty = el('div', {style:'padding:24px;text-align:center;color:var(--text-3);font-size:13px'});
+      empty.textContent = 'Nenhum item neste filtro.';
+      tableWrap.appendChild(empty);
+      return;
+    }
 
-    UNIT_NAMES.forEach(unitName => {
-      const unitRows = filtered.filter(r => r.unitName === unitName);
-      if (unitRows.length === 0) return;
+    const wrap  = el('div', {cls:'envios-wrap'});
+    const table = el('table', {cls:'envios-matrix'});
 
-      const section = el('div', {cls:'envios-unit-section'});
-      section.appendChild(el('div', {cls:'envios-unit-title'}, unitName));
-
-      const wrap = el('div', {cls:'table-wrap', style:'border-radius:0 0 var(--radius) var(--radius);padding:0'});
-      const table = el('table', {cls:'envios-table'});
-
-      // Cabeçalho
-      const thead = el('thead');
-      const hr = el('tr');
-      ['Item','UN','Mín ' + day,'Est. Unidade','A Enviar','Est. CPD','Situação'].forEach((h,i) => {
-        const th = el('th', {cls: i >= 2 ? 'num' : ''}, h);
-        hr.appendChild(th);
-      });
-      thead.appendChild(hr);
-      table.appendChild(thead);
-
-      // Linhas
-      const tbody = el('tbody');
-      unitRows.forEach(r => {
-        const tr = el('tr');
-        // Item
-        const tdName = el('td'); tdName.textContent = r.itemName;
-        tr.appendChild(tdName);
-        // UN
-        tr.appendChild(el('td', {}, r.unit));
-        // Mínimo do dia
-        tr.appendChild(el('td', {cls:'num'}, String(r.minDia)));
-        // Estoque unidade
-        tr.appendChild(el('td', {cls:'num'}, String(r.estoqueUnidade)));
-        // A Enviar
-        const tdEnv = el('td', {cls:'num', style:'color:var(--accent-dark);font-weight:700'});
-        tdEnv.textContent = String(r.aEnviar);
-        tr.appendChild(tdEnv);
-        // Estoque CPD
-        const tdCpd = el('td', {cls:'num'});
-        tdCpd.textContent = String(r.estoqueCPD);
-        if (r.estoqueCPD < r.aEnviar) tdCpd.style.color = '#C53030';
-        tr.appendChild(tdCpd);
-        // Situação
-        const tdSit = el('td');
-        const badge = el('span', {cls:'envios-status ' + r.situacao});
-        if (r.situacao === 'ok') {
-          badge.textContent = '✅ OK';
-        } else {
-          badge.textContent = '⚠️ Falta ' + r.falta;
-        }
-        tdSit.appendChild(badge);
-        tr.appendChild(tdSit);
-        tbody.appendChild(tr);
-      });
-      table.appendChild(tbody);
-      wrap.appendChild(table);
-      section.appendChild(wrap);
-      tablesWrap.appendChild(section);
+    // ── Thead linha 1: ITEM | EST CPD | ASA SUL(2) | SIG(2) | VP(2) | DLV(2) | SITUAÇÃO
+    const thead = el('thead');
+    const tr1   = el('tr');
+    const thItem = el('th', {}, 'Item');
+    thItem.setAttribute('rowspan', '2');
+    tr1.appendChild(thItem);
+    const thCpd = el('th', {}, 'Est. CPD');
+    thCpd.setAttribute('rowspan', '2');
+    tr1.appendChild(thCpd);
+    UNIT_NAMES.forEach(u => {
+      const th = el('th', {cls:'unit-hdr'}, u);
+      th.setAttribute('colspan', '2');
+      tr1.appendChild(th);
     });
+    const thSit = el('th', {}, 'Situa\u00E7\u00E3o');
+    thSit.setAttribute('rowspan', '2');
+    tr1.appendChild(thSit);
+    thead.appendChild(tr1);
+
+    // ── Thead linha 2: Est. | A Env. × 4 unidades
+    const tr2 = el('tr');
+    UNIT_NAMES.forEach((u, i) => {
+      const thEst = el('th', {cls: i === 0 ? 'sub-first' : 'sub-first'}, 'Est.');
+      const thEnv = el('th', {}, 'A env.');
+      tr2.appendChild(thEst);
+      tr2.appendChild(thEnv);
+    });
+    thead.appendChild(tr2);
+    table.appendChild(thead);
+
+    // ── Tbody
+    const tbody = el('tbody');
+    filtered.forEach(row => {
+      const tr = el('tr');
+      // Nome
+      const tdName = el('td', {}, row.name);
+      tr.appendChild(tdName);
+      // Est. CPD
+      const tdCpd = el('td');
+      tdCpd.textContent = String(row.estCPD);
+      if (row.estCPD < row.totalAEnviar) tdCpd.className = 'val-cpd-low';
+      tr.appendChild(tdCpd);
+      // Por unidade
+      UNIT_NAMES.forEach(u => {
+        const pu = row.perUnit[u];
+        const tdEst = el('td', {cls:'u-sep'});
+        const tdEnv = el('td');
+        if (pu) {
+          tdEst.textContent = String(pu.est);
+          tdEnv.textContent = String(pu.aEnviar);
+          tdEnv.className = 'val-env';
+        } else {
+          tdEst.textContent = '\u2014';
+          tdEst.className = 'val-dash u-sep';
+          tdEnv.textContent = '\u2014';
+          tdEnv.className = 'val-dash';
+        }
+        tr.appendChild(tdEst);
+        tr.appendChild(tdEnv);
+      });
+      // Situação
+      const tdSit = el('td');
+      const badge = el('span', {cls:'envios-badge ' + row.situacao});
+      badge.textContent = row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta;
+      tdSit.appendChild(badge);
+      tr.appendChild(tdSit);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    tableWrap.appendChild(wrap);
   }
 
-  // Montar filtros
-  filters.forEach(f => {
-    const btn = el('button', {cls:'envios-filter-tab' + (f.key === activeFilter ? ' active' : '')});
-    btn.textContent = f.label;
+  // Montar botões de filtro
+  [['todos', 'Todos (' + totalItems + ')'],
+   ['falta', '\u26A0\uFE0F Falta no CPD (' + totalFaltas + ')'],
+   ['ok',    '\u2705 CPD tem estoque (' + totalOk + ')']].forEach(([key, lbl]) => {
+    const btn = el('button', {cls:'envios-filter-tab' + (key === activeFilter ? ' active' : '')});
+    btn.textContent = lbl;
     btn.addEventListener('click', () => {
-      activeFilter = f.key;
+      activeFilter = key;
       filterTabs.querySelectorAll('.envios-filter-tab').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      buildTables();
+      buildMatrix();
     });
     filterTabs.appendChild(btn);
   });
-  frag.appendChild(filterTabs);
-  frag.appendChild(tablesWrap);
 
-  buildTables();
+  buildMatrix();
   return frag;
 }
 
