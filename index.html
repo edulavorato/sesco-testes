@@ -7138,7 +7138,7 @@ function viewEnviosDia() {
       th.setAttribute('colspan', '2');
       tr1.appendChild(th);
     });
-    const thSit = el('th', {}, 'Situa\u00E7\u00E3o');
+    const thSit = el('th', {cls:'u-sep'}, 'Situa\u00E7\u00E3o');
     thSit.setAttribute('rowspan', '2');
     tr1.appendChild(thSit);
     thead.appendChild(tr1);
@@ -7165,7 +7165,7 @@ function viewEnviosDia() {
         const catTr = el('tr');
         const catTd = el('td');
         catTd.setAttribute('colspan', String(2 + UNIT_NAMES.length * 2 + 1));
-        catTd.style.cssText = 'background:#EAF2EC;color:var(--accent-dark,#2a6049);font-family:Lato,sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:7px 10px;border-bottom:1px solid var(--border)';
+        catTd.style.cssText = 'background:#EAF2EC;color:var(--accent-dark,#2a6049);font-family:Lato,sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:7px 10px;border-bottom:1px solid var(--border);border-top:1px solid var(--border)';
         catTd.textContent = rowCat;
         catTr.appendChild(catTd);
         tbody.appendChild(catTr);
@@ -7198,7 +7198,7 @@ function viewEnviosDia() {
         tr.appendChild(tdEnv);
       });
       // Situação
-      const tdSit = el('td');
+      const tdSit = el('td', {cls:'u-sep'});
       const badge = el('span', {cls:'envios-badge ' + row.situacao});
       badge.textContent = row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta;
       tdSit.appendChild(badge);
