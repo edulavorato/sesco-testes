@@ -7046,10 +7046,15 @@ function viewEnviosDia() {
     rows.push(row);
   });
 
-  // Ordenar: faltas primeiro, depois por categoria, depois por nome
+  // Ordem das categorias: seguir a ordem do catálogo CPD (CATEGORIES)
+  // Itens sem categoria no CPD vão para o fim
+  const catOrder = typeof CATEGORIES !== 'undefined' ? CATEGORIES : [];
   rows.sort((a,b) => {
-    if (a.situacao !== b.situacao) return a.situacao === 'falta' ? -1 : 1;
-    if (a.category !== b.category) return a.category.localeCompare(b.category);
+    const ia = catOrder.indexOf(a.category);
+    const ib = catOrder.indexOf(b.category);
+    const oa = ia === -1 ? 999 : ia;
+    const ob = ib === -1 ? 999 : ib;
+    if (oa !== ob) return oa - ob;
     return a.name.localeCompare(b.name);
   });
 
@@ -7128,9 +7133,21 @@ function viewEnviosDia() {
     thead.appendChild(tr2);
     table.appendChild(thead);
 
-    // ── Tbody
+    // ── Tbody — agrupado por categoria
     const tbody = el('tbody');
+    let lastCat = null;
     filtered.forEach(row => {
+      // Inserir linha de categoria quando mudar
+      if (row.category !== lastCat) {
+        lastCat = row.category;
+        const catTr = el('tr');
+        const catTd = el('td');
+        catTd.setAttribute('colspan', String(2 + UNIT_NAMES.length * 2 + 1));
+        catTd.style.cssText = 'background:#EAF2EC;color:var(--accent-dark,#2a6049);font-family:Lato,sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:7px 10px;border-bottom:1px solid var(--border)';
+        catTd.textContent = row.category;
+        catTr.appendChild(catTd);
+        tbody.appendChild(catTr);
+      }
       const tr = el('tr');
       // Nome
       const tdName = el('td', {}, row.name);
