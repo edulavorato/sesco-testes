@@ -3278,6 +3278,15 @@ const DELIVERY_CATALOG = [
 
 // Mapa unidade → catálogo e categorias
 function getUnitCatalog(unitName) {
+  // Priorizar cache em memória (versão editada) sobre seed hardcoded
+  const slug = typeof unitSlug === 'function' ? unitSlug(unitName) : (unitName||'').toLowerCase().replace(/[^a-z0-9]+/g,'_');
+  if (window._unitCatalogCache && window._unitCatalogCache[slug]) {
+    // Derivar categorias do catálogo em cache (preserva ordem de edição)
+    const cachedCat = window._unitCatalogCache[slug];
+    const cats = [...new Set(cachedCat.map(i => i.category))];
+    return { catalog: cachedCat, categories: cats };
+  }
+  // Fallback: seed hardcoded
   switch(unitName) {
     case 'Asa Sul':       return { catalog: ASA_SUL_CATALOG,       categories: ASA_SUL_CATEGORIES };
     case 'SIG':           return { catalog: SIG_CATALOG,           categories: SIG_CATEGORIES };
@@ -4391,6 +4400,28 @@ setTimeout(() => {
     _gateRelease();
   }
 }, 15000);
+
+// Salvar catálogo de uma unidade: atualiza cache em memória + Firebase
+// Garante que viewUnits e contagem refletem a mudança imediatamente
+function saveUnitCatalog(unitName, catalogData) {
+  const slug = unitSlug(unitName);
+  // 1. Atualizar cache em memória
+  if (!window._unitCatalogCache) window._unitCatalogCache = {};
+  window._unitCatalogCache[slug] = catalogData;
+  // 2. Atualizar getUnitCatalog() — os seeds hardcoded ficam desatualizados após edição
+  //    A função getUnitCatalog retorna o seed; sobrescrever com o editado via cache
+  // 3. Atualizar unitCatalog global se for a unidade logada (para contagem imediata)
+  if (typeof session !== 'undefined' && session && unitSlug(session.unit) === slug) {
+    unitCatalog = catalogData;
+  }
+  // 4. Salvar no localStorage
+  try { localStorage.setItem('pizza_unit_catalog_' + slug, JSON.stringify(catalogData)); } catch(e) {}
+  // 5. Salvar no Firebase
+  if (window._fb && window._fb.ready && typeof db !== 'undefined') {
+    db.ref('dados/pizza_unit_catalog/' + slug).set(catalogData)
+      .catch(e => console.warn('[Firebase] Erro ao salvar catálogo de', unitName, e));
+  }
+}
 
 function saveLocal(key, data) {
   try { localStorage.setItem(key, JSON.stringify(data)); } catch(e) {}
@@ -7448,7 +7479,7 @@ function viewCatalogo() {
           const saveNameFn = () => {
             const v = nameInp.value.trim() || item.name;
             item.name = v; nameLabel.textContent = v;
-            save(isCpdTab ? 'pizza_catalog' : ('pizza_unit_catalog/' + unitSlug(activeTab)), tabCatalog);
+            isCpdTab ? save('pizza_catalog', tabCatalog) : saveUnitCatalog(activeTab, tabCatalog);
             nameInp.style.display='none'; nameLabel.style.display='';
           };
           nameLabel.addEventListener('click', () => { nameLabel.style.display='none'; nameInp.style.display=''; nameInp.focus(); nameInp.select(); });
@@ -7465,7 +7496,7 @@ function viewCatalogo() {
           const saveUnitFn = () => {
             const v = unitInp.value.trim() || item.unit;
             item.unit = v; unitSpan.textContent = v; catInline.textContent = v;
-            save(isCpdTab ? 'pizza_catalog' : ('pizza_unit_catalog/' + unitSlug(activeTab)), tabCatalog);
+            isCpdTab ? save('pizza_catalog', tabCatalog) : saveUnitCatalog(activeTab, tabCatalog);
             unitInp.style.display='none'; unitSpan.style.display='';
           };
           unitInp.addEventListener('blur', saveUnitFn);
@@ -7549,7 +7580,7 @@ function viewCatalogo() {
                 if (c !== item.category) {
                   btn.addEventListener('click', () => {
                     item.category = c;
-                    save(isCpdTab ? 'pizza_catalog' : ('pizza_unit_catalog/' + unitSlug(activeTab)), tabCatalog);
+                    isCpdTab ? save('pizza_catalog', tabCatalog) : saveUnitCatalog(activeTab, tabCatalog);
                     document.body.removeChild(modal);
                     buildTable();
                     toast('Item movido para ' + c);
@@ -7592,7 +7623,7 @@ function viewCatalogo() {
               // Trocar no array global
               tabCatalog[globalIdx]    = neighbor;
               tabCatalog[neighborGi]   = item;
-              save(isCpdTab ? 'pizza_catalog' : ('pizza_unit_catalog/' + unitSlug(activeTab)), tabCatalog);
+              isCpdTab ? save('pizza_catalog', tabCatalog) : saveUnitCatalog(activeTab, tabCatalog);
               buildTable();
             };
             moveUp.addEventListener('click', () => moveItem(-1));
@@ -7606,7 +7637,7 @@ function viewCatalogo() {
             if (!confirm(`Remover "${item.name}" do cat\u00E1logo?`)) return;
             const idx = tabCatalog.indexOf(item);
             if (idx >= 0) tabCatalog.splice(idx, 1);
-            save(isCpdTab ? 'pizza_catalog' : ('pizza_unit_catalog/' + unitSlug(activeTab)), tabCatalog);
+            isCpdTab ? save('pizza_catalog', tabCatalog) : saveUnitCatalog(activeTab, tabCatalog);
             tr.remove();
             toast('Item removido');
           }}, 'Remover');
