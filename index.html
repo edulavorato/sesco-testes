@@ -3281,6 +3281,24 @@ function getUnitCatalog(unitName) {
   }
 }
 
+// Encoder PDF Latin-1/WinAnsi — usado em todas as funções de geração de PDF
+function pdfStr(str) {
+  let out = '';
+  for (const ch of String(str)) {
+    const code = ch.charCodeAt(0);
+    if (ch === '(') out += '\\(';
+    else if (ch === ')') out += '\\)';
+    else if (ch === '\\') out += '\\\\';
+    else if (code < 128) out += ch;
+    else if (code <= 0xFF) out += '\\' + code.toString(8).padStart(3, '0');
+    else {
+      const norm = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      out += (norm && norm.charCodeAt(0) < 128) ? norm : '?';
+    }
+  }
+  return '(' + out + ')';
+}
+
 // ═══ CLASSIFICAÇÃO DE ITENS CPD (PRODUZIDOS / COMPRADOS) ════════════════════
 const ITENS_PRODUZIDOS = new Set([
   'Massa de pizza',
