@@ -7048,13 +7048,12 @@ function openValidityModal(itemId, itemName) {
 
 // ═══ PDF DE ENVIOS (PRODUÇÃO / COMPRAS) ══════════════════════════════════════
 function gerarPdfEnvios(tipo) {
-  // tipo: 'produzido' | 'comprado'
   const day     = nextEnviarDay();
   const dayFull = {SEG:'Segunda-feira', QUA:'Quarta-feira', SEX:'Sexta-feira'}[day] || day;
-  const titulo  = tipo === 'produzido' ? 'Lista de Produção' : 'Lista de Compras';
+  const titulo  = tipo === 'produzido' ? 'Lista de Producao' : 'Lista de Compras';
   const _norm   = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 
-  // Coletar itens com falta no CPD, filtrados por tipo
+  // Coletar itens com falta no CPD filtrados por tipo
   const linhas = [];
   UNIT_NAMES.forEach(unitName => {
     const ucat   = getUnitCatalog(unitName).catalog;
@@ -7070,146 +7069,122 @@ function gerarPdfEnvios(tipo) {
       const cpdItem = (catalog || []).find(c => _norm(c.name) === _norm(item.name));
       const estCPD  = cpdItem ? (cpd[cpdItem.id] || 0) : 0;
       const falta   = Math.max(0, aEnviar - estCPD);
-      if (falta === 0) return; // CPD já tem — não precisa produzir/comprar
-      // Adicionar ou acumular (mesmo item pode aparecer em várias unidades)
+      if (falta === 0) return;
       const existing = linhas.find(l => _norm(l.name) === _norm(item.name));
       if (existing) {
         existing.falta += falta;
         existing.detalhe += ', ' + unitName + ' (' + aEnviar + ')';
       } else {
-        linhas.push({ name: item.name, unit: item.unit, falta, category: item.category,
-                      detalhe: unitName + ' (' + aEnviar + ')' });
+        linhas.push({ name: item.name, unit: item.unit, falta,
+                      category: item.category, detalhe: unitName + ' (' + aEnviar + ')' });
       }
     });
   });
 
   if (linhas.length === 0) {
-    toast(tipo === 'produzido'
-      ? 'Nenhum item de produção faltando para ' + dayFull
-      : 'Nenhum item de compra faltando para ' + dayFull);
+    toast((tipo === 'produzido' ? 'Nenhum item de producao' : 'Nenhum item de compra') + ' faltando para ' + dayFull);
     return;
   }
 
-  // Ordenar por categoria (ordem do catálogo da Asa Sul como referência) + posição
+  // Ordenar por categoria depois posição
   const refCats = getUnitCatalog('Asa Sul').categories;
   linhas.sort((a, b) => {
     const ia = refCats.indexOf(a.category), ib = refCats.indexOf(b.category);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib) || a.name.localeCompare(b.name);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
   });
 
-  // ── Gerar PDF ──────────────────────────────────────────────────────────────
-  const W = 595, ML = 36, MR = 36, TW = W - ML - MR;
-  const colW = [TW*0.5, TW*0.12, TW*0.13, TW*0.25];
-  const colX = [ML, ML+colW[0], ML+colW[0]+colW[1], ML+colW[0]+colW[1]+colW[2]];
-  const ROW_H = 16, HEAD_H = 24, MARGIN_TOP = 60, MARGIN_BOT = 40;
-  const PAGE_H = 842;
-  const usableH = PAGE_H - MARGIN_TOP - MARGIN_BOT;
+  // ── Estrutura PDF idêntica ao printStockPdf (método que funciona) ──────────
+  function rgb(r,g,b) { return (r/255).toFixed(3)+' '+(g/255).toFixed(3)+' '+(b/255).toFixed(3); }
 
-  const ops = [], pages = [];
-  let y = PAGE_H - MARGIN_TOP, pageNum = 1;
+  const W = 595.28, H = 841.89;
+  const ml = 40, mr = 40;
+  const cmds = [];
+  const c = (...p) => cmds.push(p.join(' '));
 
-  function newPage() {
-    ops.length = 0;
-    // Fundo header
-    ops.push(`0.16 0.38 0.29 rg ${ML} ${PAGE_H-32} ${TW} 26 re f`);
-    ops.push(`1 1 1 rg`);
-    ops.push(`BT /F1 13 Tf ${ML+4} ${PAGE_H-22} Td (${pdfStr(titulo + ' \u2014 ' + dayFull)}) Tj ET`);
-    const dateStr = new Date().toLocaleDateString('pt-BR');
-    ops.push(`0.6 0.6 0.6 rg BT /F2 8 Tf ${W-MR-60} ${PAGE_H-22} Td (${pdfStr(dateStr)}) Tj ET`);
-    // Linha separadora
-    ops.push(`0.8 0.8 0.8 rg ${ML} ${PAGE_H-34} ${TW} 0.5 re f`);
-    y = PAGE_H - MARGIN_TOP;
-    // Cabeçalho da tabela
-    ops.push(`0.93 0.95 0.93 rg ${ML} ${y-HEAD_H} ${TW} ${HEAD_H} re f`);
-    ops.push(`0 0 0 rg`);
-    ['ITEM','UN','FALTA','PARA (UNIDADES)'].forEach((h, i) => {
-      ops.push(`BT /F1 8 Tf ${colX[i]+3} ${y-HEAD_H+6} Td (${h}) Tj ET`);
-    });
-    ops.push(`0.85 0.85 0.85 rg ${ML} ${y-HEAD_H-0.5} ${TW} 0.5 re f`);
-    y -= HEAD_H + 2;
-  }
+  // Header
+  c(rgb(12,26,15)+' rg', ml+' '+(H-50)+' '+(W-80)+' 40 re f');
+  c('BT /F1 13 Tf '+rgb(240,237,224)+' rg '+(ml+8)+' '+(H-34)+' Td '+pdfStr(titulo+' - '+dayFull)+' Tj ET');
+  const genDate = new Date().toLocaleDateString('pt-BR');
+  c('BT /F2 8 Tf '+rgb(168,196,174)+' rg '+(W-mr-80)+' '+(H-34)+' Td '+pdfStr(genDate)+' Tj ET');
+  c('BT /F2 9 Tf '+rgb(168,196,174)+' rg '+(ml+8)+' '+(H-48)+' Td '+pdfStr(linhas.length+' itens com falta no CPD')+' Tj ET');
 
-  newPage();
+  // Separador
+  c(rgb(184,146,42)+' RG 0.8 w '+ml+' '+(H-58)+' m '+(W-mr)+' '+(H-58)+' l S');
+
+  // Cabeçalho da tabela
+  const thY = H - 78;
+  const col = [ml+2, ml+220, ml+270, ml+340];
+  c(rgb(38,116,62)+' rg '+ml+' '+thY+' '+(W-ml-mr)+' 18 re f');
+  c('BT /F1 8 Tf 1 1 1 rg '+col[0]+' '+(thY+5)+' Td (ITEM) Tj ET');
+  c('BT /F1 8 Tf 1 1 1 rg '+col[1]+' '+(thY+5)+' Td (UN) Tj ET');
+  c('BT /F1 8 Tf 1 1 1 rg '+col[2]+' '+(thY+5)+' Td (FALTA) Tj ET');
+  c('BT /F1 8 Tf 1 1 1 rg '+col[3]+' '+(thY+5)+' Td (PARA - UNIDADES) Tj ET');
+
+  let y = thY - 2;
+  const rowH = 15;
   let lastCat = null;
 
-  linhas.forEach(row => {
-    // Cabeçalho de categoria
+  linhas.forEach((row, i) => {
     if (row.category !== lastCat) {
       lastCat = row.category;
-      if (y < MARGIN_BOT + ROW_H * 2) { pages.push(ops.slice()); newPage(); pageNum++; }
-      ops.push(`0.91 0.96 0.92 rg ${ML} ${y-12} ${TW} 13 re f`);
-      ops.push(`0.16 0.38 0.29 rg`);
-      ops.push(`BT /F1 8 Tf ${ML+4} ${y-9} Td (${pdfStr(row.category.toUpperCase())}) Tj ET`);
-      ops.push(`0 0 0 rg`);
+      if (y < 60) return; // proteção
+      c(rgb(220,238,224)+' rg '+ml+' '+(y-12)+' '+(W-ml-mr)+' 13 re f');
+      c('BT /F1 8 Tf '+rgb(16,48,22)+' rg '+(ml+4)+' '+(y-9)+' Td '+pdfStr(row.category.toUpperCase())+' Tj ET');
       y -= 14;
     }
-    if (y < MARGIN_BOT) { pages.push(ops.slice()); newPage(); pageNum++; }
-    // Linha do item
-    ops.push(`BT /F2 8 Tf ${colX[0]+3} ${y-11} Td ${pdfStr(row.name)} Tj ET`);
-    ops.push(`BT /F2 8 Tf ${colX[1]+3} ${y-11} Td (${pdfStr(row.unit)}) Tj ET`);
-    ops.push(`0.7 0.1 0.1 rg BT /F1 9 Tf ${colX[2]+3} ${y-11} Td (${row.falta}) Tj ET 0 0 0 rg`);
-    ops.push(`BT /F2 7 Tf ${colX[3]+3} ${y-11} Td ${pdfStr(row.detalhe)} Tj ET`);
-    ops.push(`0.9 0.9 0.9 rg ${ML} ${y-ROW_H} ${TW} 0.4 re f 0 0 0 rg`);
-    y -= ROW_H;
+    if (y < 50) return;
+    if (i % 2 === 0) c(rgb(253,252,247)+' rg '+ml+' '+(y-rowH)+' '+(W-ml-mr)+' '+rowH+' re f');
+    else             c(rgb(245,242,232)+' rg '+ml+' '+(y-rowH)+' '+(W-ml-mr)+' '+rowH+' re f');
+
+    const nm = row.name.length > 45 ? row.name.substring(0,45)+'...' : row.name;
+    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+col[0]+' '+(y-rowH+4)+' Td '+pdfStr(nm)+' Tj ET');
+    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+col[1]+' '+(y-rowH+4)+' Td '+pdfStr(row.unit)+' Tj ET');
+    c('BT /F1 10 Tf '+rgb(180,40,40)+' rg '+col[2]+' '+(y-rowH+4)+' Td ('+row.falta+') Tj ET');
+    const det = row.detalhe.length > 40 ? row.detalhe.substring(0,40)+'...' : row.detalhe;
+    c('BT /F2 7 Tf '+rgb(80,80,80)+' rg '+col[3]+' '+(y-rowH+4)+' Td '+pdfStr(det)+' Tj ET');
+    c(rgb(218,215,197)+' RG 0.3 w '+ml+' '+(y-rowH)+' m '+(W-mr)+' '+(y-rowH)+' l S');
+    y -= rowH;
   });
 
-  pages.push(ops.slice());
+  // Footer
+  c(rgb(218,215,197)+' RG 0.5 w '+ml+' 36 m '+(W-mr)+' 36 l S');
+  c('BT /F2 8 Tf '+rgb(154,152,128)+' rg '+ml+' 24 Td '+pdfStr("Sesconetto's Pizzeria  -  Sistema de Estoque")+' Tj ET');
 
-  // Montar PDF
-  const pdfLines = ['%PDF-1.4'];
+  // Montar PDF usando mesmo método do printStockPdf
+  const streamContent = cmds.join(String.fromCharCode(10));
+  const objs = [];
+  function addObj(cnt) { const id=objs.length+1; objs.push({id,content:cnt}); return id; }
+
+  const f1id     = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const f2id     = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  const streamId = addObj('<< /Length '+streamContent.length+' >>\nstream\n'+streamContent+'\nendstream');
+  const pageId   = addObj('<< /Type /Page /Parent 5 0 R /MediaBox [0 0 '+W+' '+H+'] /Contents '+streamId+' 0 R /Resources << /Font << /F1 '+f1id+' 0 R /F2 '+f2id+' 0 R >> >> >>');
+  const pagesId  = addObj('<< /Type /Pages /Kids ['+pageId+' 0 R] /Count 1 >>');
+  const catId    = addObj('<< /Type /Catalog /Pages '+pagesId+' 0 R >>');
+
+  let out = '%PDF-1.4\n%\xFF\xFF\xFF\xFF\n';
   const offsets = [];
-  let offset = pdfLines[0].length + 1;
-
-  const fontObj = (id, name) => {
-    const s = `${id} 0 obj
-<< /Type /Font /Subtype /Type1 /BaseFont /${name} /Encoding /WinAnsiEncoding >>
-endobj
-`;
-    offsets[id] = offset; offset += s.length; pdfLines.push(s); return id;
-  };
-  const f1 = fontObj(1, 'Helvetica-Bold');
-  const f2 = fontObj(2, 'Helvetica');
-
-  pages.forEach((pageOps, pi) => {
-    const stream = pageOps.join(String.fromCharCode(10));
-    const streamObj = `${4+pi*2} 0 obj
-<< /Length ${stream.length} >>
-stream
-${stream}
-endstream
-endobj
-`;
-    offsets[4+pi*2] = offset; offset += streamObj.length; pdfLines.push(streamObj);
-    const pageObj = `${5+pi*2} 0 obj
-<< /Type /Page /Parent 3 0 R /MediaBox [0 0 ${W} ${PAGE_H}] /Contents ${4+pi*2} 0 R /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> >>
-endobj
-`;
-    offsets[5+pi*2] = offset; offset += pageObj.length; pdfLines.push(pageObj);
+  objs.forEach(obj => {
+    offsets.push(out.length);
+    out += obj.id+' 0 obj\n'+obj.content+'\nendobj\n';
   });
 
-  const pageRefs = pages.map((_, pi) => `${5+pi*2} 0 R`).join(' ');
-  const pagesObj = `3 0 obj
-<< /Type /Pages /Kids [${pageRefs}] /Count ${pages.length} >>
-endobj
-`;
-  offsets[3] = offset; offset += pagesObj.length; pdfLines.push(pagesObj);
+  const xrefOff = out.length;
+  out += 'xref\n0 '+(objs.length+1)+'\n';
+  out += '0000000000 65535 f \n';
+  offsets.forEach(o => { out += String(o).padStart(10,'0')+' 00000 n \n'; });
+  out += 'trailer\n<< /Size '+(objs.length+1)+' /Root '+catId+' 0 R >>\nstartxref\n'+xrefOff+'\n%%EOF';
 
-  const NL = String.fromCharCode(10);
-  const xrefEntries = offsets.slice(1).map(o => (o||0).toString().padStart(10,'0') + ' 00000 n ').join(NL);
-  const xref = 'xref' + NL + '0 ' + (4+pages.length*2) + NL + '0000000000 65535 f ' + NL + xrefEntries + NL;
-  const trailer = 'trailer' + NL + '<< /Size ' + (4+pages.length*2) + ' /Root 3 0 R >>' + NL + 'startxref' + NL + offset + NL + '%%EOF';
-  const fullPdf = pdfLines.join('') + xref + trailer;
+  const bArr = new Uint8Array(out.length);
+  for (let i = 0; i < out.length; i++) bArr[i] = out.charCodeAt(i) & 0xff;
 
-  // Converter para Uint8Array (Latin-1) para PDF binário correto
   const fname = (tipo === 'produzido' ? 'Lista_Producao_' : 'Lista_Compras_') + day + '.pdf';
-  const bArr = new Uint8Array(fullPdf.length);
-  for (let i = 0; i < fullPdf.length; i++) bArr[i] = fullPdf.charCodeAt(i) & 0xff;
-  const blob = new Blob([bArr], {type:'application/pdf'});
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
+  const blob  = new Blob([bArr], {type:'application/pdf'});
+  const url   = URL.createObjectURL(blob);
+  const a     = document.createElement('a');
   a.href = url; a.download = fname; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-  toast('PDF ' + (tipo === 'produzido' ? 'Produção' : 'Compras') + ' gerado!');
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  toast('PDF ' + (tipo === 'produzido' ? 'Producao' : 'Compras') + ' gerado!');
 }
 
 // ═══ ENVIOS DO DIA ═══════════════════════════════════════════════════════════
