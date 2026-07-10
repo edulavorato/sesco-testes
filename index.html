@@ -3281,6 +3281,84 @@ function getUnitCatalog(unitName) {
   }
 }
 
+// ═══ CLASSIFICAÇÃO DE ITENS CPD (PRODUZIDOS / COMPRADOS) ════════════════════
+const ITENS_PRODUZIDOS = new Set([
+  'Massa de pizza',
+  'Muçarela 20kg',
+  'Molho de tomate 5L',
+  'Muçarela lacfree',
+  'Parmesão grana padano 300g',
+  'Parmesão ralado 2kg',
+  'Provolone 300g',
+  'Gorgonzola 300g',
+  'Linguiça calabresa 2,5kg',
+  'Carne de sol desfiada 1kg',
+  'Frango desfiado 1kg',
+  'Lombo canadense 500g',
+  'Salaminho italiano',
+  'Tomate seco 500g',
+  'Presunto cozido',
+  'Lascas de coco 200g',
+  'Nutella 400g',
+  'Guianduela branca',
+  'Creme de pistache 400g',
+  'Geleia amora framboesa pizza',
+  'Geleia abacaxi c/pimenta 500g',
+  'Purê de abóbora 500g',
+  'Molho pesto de azeitona',
+  'Molho pesto bisnaga',
+  'Creme de gorgonzola',
+  'Chocolate ao leite ralado',
+  'Chocolate branco ralado',
+  'Salva borda brigadeiro',
+  'Salva borda doce de leite',
+  'Canela c/açúcar mix 500g',
+  'Canela em pó 200g',
+  'Orégano 250g',
+  'Nozes 100g',
+  'Pistache 250g'
+]);
+
+const ITENS_COMPRADOS = new Set([
+  'Muçarela de búfala 2kg',
+  'Burrata de búfala 200g',
+  'Queijo brie',
+  'Requeijão bisnaga 1,5kg',
+  'Cream cheese',
+  'Anchovas 50g',
+  'Peperoni 1kg',
+  'Bacon fatiado cru',
+  'Presunto parma 500g',
+  'Semolina 10kg',
+  'Atum natural lata',
+  'Aceto balsâmico 250ml',
+  'Creme de leite cx 200ml',
+  'Azeitona preta 2kg',
+  'Leite condensado 400ml',
+  'Doce de leite argentino 1kg',
+  'Geléia de damasco 1kg',
+  'Mel 1,1kg',
+  'Marshmallows 250g',
+  'Ovos',
+  'Kinder bueno branco - CX',
+  'Bobina seg plast 30x40',
+  'Bobina seg plast 20x30',
+  'Lenha 25kg',
+  'Álcool em gel p/forno',
+  'Palmito de pupunha 1kg',
+  'Adaptador de isqueiro',
+  'Isqueiro'
+]);
+
+// Helper: classificar item por nome (normalizado)
+function classificarItem(itemName) {
+  const _n = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+  const nm = _n(itemName);
+  for (const p of ITENS_PRODUZIDOS) { if (_n(p) === nm) return 'produzido'; }
+  for (const c of ITENS_COMPRADOS)  { if (_n(c) === nm) return 'comprado'; }
+  return 'outro';
+}
+
 // ═══ MÍNIMOS POR DIA DE ENTREGA (das planilhas aprovadas) ═══════════════════
 // Formato: { 'Nome do Item': { SEG: qty, QUA: qty, SEX: qty } }
 // A Enviar = max(0, Mínimo do Dia - Estoque Atual)
@@ -5706,7 +5784,7 @@ function printBatchPdf(batch) {
   c(`BT /F2 8 Tf ${rgb(154,152,128)} rg ${W-mr-130} 28 Td ${pdfStr(genDate)} Tj ET`);
 
   // AssemblePDF
-  const streamContent = cmds.join('\n');
+  const streamContent = cmds.join(String.fromCharCode(10));
 
   // Convert stream to binary bytes correctly
   const bytes = [];
@@ -6049,7 +6127,8 @@ function printBatchPdf(batch) {
   const pageIds = [];
   const baseObj = 4;
   pages.forEach((pageOps, pi) => {
-    const stream = pageOps.join('\n');
+    const NL = String.fromCharCode(10);
+  const stream = pageOps.join(String.fromCharCode(10));
     const lenObj = baseObj + pi*2;
     const pageObj = baseObj + pi*2 + 1;
     addObj(lenObj, `<<\n/Length ${stream.length}\n>>\nstream\n${stream}\nendstream`);
@@ -6168,7 +6247,8 @@ function printLogPdf(entries) {
   const pageIds = [];
   const baseObj = 4;
   pages.forEach((pageOps, pi) => {
-    const stream = pageOps.join('\n');
+    const NL = String.fromCharCode(10);
+  const stream = pageOps.join(String.fromCharCode(10));
     const lenObj = baseObj + pi*2;
     const pageObj = baseObj + pi*2 + 1;
     addObj(lenObj, `<<\n/Length ${stream.length}\n>>\nstream\n${stream}\nendstream`);
@@ -6313,7 +6393,7 @@ function printOrderPdf(order) {
   const gen=`Gerado em ${new Date().toLocaleDateString('pt-BR')} as ${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}`;
   c(`BT /F2 8 Tf ${rgb(154,152,128)} rg ${W-mr-130} 28 Td ${pdfStr(gen)} Tj ET`);
 
-  const sc=cmds.join('\n');
+  const sc=cmds.join(String.fromCharCode(10));
   const objs=[];
   function addObj(content){const id=objs.length+1;objs.push({id,content});return id;}
   const f1=addObj(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
@@ -6948,6 +7028,169 @@ function openValidityModal(itemId, itemName) {
   document.body.appendChild(overlay);
 }
 
+// ═══ PDF DE ENVIOS (PRODUÇÃO / COMPRAS) ══════════════════════════════════════
+function gerarPdfEnvios(tipo) {
+  // tipo: 'produzido' | 'comprado'
+  const day     = nextEnviarDay();
+  const dayFull = {SEG:'Segunda-feira', QUA:'Quarta-feira', SEX:'Sexta-feira'}[day] || day;
+  const titulo  = tipo === 'produzido' ? 'Lista de Produção' : 'Lista de Compras';
+  const _norm   = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+
+  // Coletar itens com falta no CPD, filtrados por tipo
+  const linhas = [];
+  UNIT_NAMES.forEach(unitName => {
+    const ucat   = getUnitCatalog(unitName).catalog;
+    const ustock = unitStock[unitName] || {};
+    const minMap = getMinPerDay(unitName);
+    ucat.forEach(item => {
+      if (classificarItem(item.name) !== tipo) return;
+      const minDia  = (minMap[item.name] && minMap[item.name][day]) || 0;
+      if (minDia === 0) return;
+      const estUnit = ustock[item.id] || 0;
+      const aEnviar = Math.max(0, minDia - estUnit);
+      if (aEnviar === 0) return;
+      const cpdItem = (catalog || []).find(c => _norm(c.name) === _norm(item.name));
+      const estCPD  = cpdItem ? (cpd[cpdItem.id] || 0) : 0;
+      const falta   = Math.max(0, aEnviar - estCPD);
+      if (falta === 0) return; // CPD já tem — não precisa produzir/comprar
+      // Adicionar ou acumular (mesmo item pode aparecer em várias unidades)
+      const existing = linhas.find(l => _norm(l.name) === _norm(item.name));
+      if (existing) {
+        existing.falta += falta;
+        existing.detalhe += ', ' + unitName + ' (' + aEnviar + ')';
+      } else {
+        linhas.push({ name: item.name, unit: item.unit, falta, category: item.category,
+                      detalhe: unitName + ' (' + aEnviar + ')' });
+      }
+    });
+  });
+
+  if (linhas.length === 0) {
+    toast(tipo === 'produzido'
+      ? 'Nenhum item de produção faltando para ' + dayFull
+      : 'Nenhum item de compra faltando para ' + dayFull);
+    return;
+  }
+
+  // Ordenar por categoria (ordem do catálogo da Asa Sul como referência) + posição
+  const refCats = getUnitCatalog('Asa Sul').categories;
+  linhas.sort((a, b) => {
+    const ia = refCats.indexOf(a.category), ib = refCats.indexOf(b.category);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib) || a.name.localeCompare(b.name);
+  });
+
+  // ── Gerar PDF ──────────────────────────────────────────────────────────────
+  const W = 595, ML = 36, MR = 36, TW = W - ML - MR;
+  const colW = [TW*0.5, TW*0.12, TW*0.13, TW*0.25];
+  const colX = [ML, ML+colW[0], ML+colW[0]+colW[1], ML+colW[0]+colW[1]+colW[2]];
+  const ROW_H = 16, HEAD_H = 24, MARGIN_TOP = 60, MARGIN_BOT = 40;
+  const PAGE_H = 842;
+  const usableH = PAGE_H - MARGIN_TOP - MARGIN_BOT;
+
+  const ops = [], pages = [];
+  let y = PAGE_H - MARGIN_TOP, pageNum = 1;
+
+  function newPage() {
+    ops.length = 0;
+    // Fundo header
+    ops.push(`0.16 0.38 0.29 rg ${ML} ${PAGE_H-32} ${TW} 26 re f`);
+    ops.push(`1 1 1 rg`);
+    ops.push(`BT /F1 13 Tf ${ML+4} ${PAGE_H-22} Td (${pdfStr(titulo + ' \u2014 ' + dayFull)}) Tj ET`);
+    const dateStr = new Date().toLocaleDateString('pt-BR');
+    ops.push(`0.6 0.6 0.6 rg BT /F2 8 Tf ${W-MR-60} ${PAGE_H-22} Td (${pdfStr(dateStr)}) Tj ET`);
+    // Linha separadora
+    ops.push(`0.8 0.8 0.8 rg ${ML} ${PAGE_H-34} ${TW} 0.5 re f`);
+    y = PAGE_H - MARGIN_TOP;
+    // Cabeçalho da tabela
+    ops.push(`0.93 0.95 0.93 rg ${ML} ${y-HEAD_H} ${TW} ${HEAD_H} re f`);
+    ops.push(`0 0 0 rg`);
+    ['ITEM','UN','FALTA','PARA (UNIDADES)'].forEach((h, i) => {
+      ops.push(`BT /F1 8 Tf ${colX[i]+3} ${y-HEAD_H+6} Td (${h}) Tj ET`);
+    });
+    ops.push(`0.85 0.85 0.85 rg ${ML} ${y-HEAD_H-0.5} ${TW} 0.5 re f`);
+    y -= HEAD_H + 2;
+  }
+
+  newPage();
+  let lastCat = null;
+
+  linhas.forEach(row => {
+    // Cabeçalho de categoria
+    if (row.category !== lastCat) {
+      lastCat = row.category;
+      if (y < MARGIN_BOT + ROW_H * 2) { pages.push(ops.slice()); newPage(); pageNum++; }
+      ops.push(`0.91 0.96 0.92 rg ${ML} ${y-12} ${TW} 13 re f`);
+      ops.push(`0.16 0.38 0.29 rg`);
+      ops.push(`BT /F1 8 Tf ${ML+4} ${y-9} Td (${pdfStr(row.category.toUpperCase())}) Tj ET`);
+      ops.push(`0 0 0 rg`);
+      y -= 14;
+    }
+    if (y < MARGIN_BOT) { pages.push(ops.slice()); newPage(); pageNum++; }
+    // Linha do item
+    ops.push(`BT /F2 8 Tf ${colX[0]+3} ${y-11} Td ${pdfStr(row.name)} Tj ET`);
+    ops.push(`BT /F2 8 Tf ${colX[1]+3} ${y-11} Td (${pdfStr(row.unit)}) Tj ET`);
+    ops.push(`0.7 0.1 0.1 rg BT /F1 9 Tf ${colX[2]+3} ${y-11} Td (${row.falta}) Tj ET 0 0 0 rg`);
+    ops.push(`BT /F2 7 Tf ${colX[3]+3} ${y-11} Td ${pdfStr(row.detalhe)} Tj ET`);
+    ops.push(`0.9 0.9 0.9 rg ${ML} ${y-ROW_H} ${TW} 0.4 re f 0 0 0 rg`);
+    y -= ROW_H;
+  });
+
+  pages.push(ops.slice());
+
+  // Montar PDF
+  const pdfLines = ['%PDF-1.4'];
+  const offsets = [];
+  let offset = pdfLines[0].length + 1;
+
+  const fontObj = (id, name) => {
+    const s = `${id} 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /${name} /Encoding /WinAnsiEncoding >>
+endobj
+`;
+    offsets[id] = offset; offset += s.length; pdfLines.push(s); return id;
+  };
+  const f1 = fontObj(1, 'Helvetica-Bold');
+  const f2 = fontObj(2, 'Helvetica');
+
+  pages.forEach((pageOps, pi) => {
+    const stream = pageOps.join(String.fromCharCode(10));
+    const streamObj = `${4+pi*2} 0 obj
+<< /Length ${stream.length} >>
+stream
+${stream}
+endstream
+endobj
+`;
+    offsets[4+pi*2] = offset; offset += streamObj.length; pdfLines.push(streamObj);
+    const pageObj = `${5+pi*2} 0 obj
+<< /Type /Page /Parent 3 0 R /MediaBox [0 0 ${W} ${PAGE_H}] /Contents ${4+pi*2} 0 R /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> >>
+endobj
+`;
+    offsets[5+pi*2] = offset; offset += pageObj.length; pdfLines.push(pageObj);
+  });
+
+  const pageRefs = pages.map((_, pi) => `${5+pi*2} 0 R`).join(' ');
+  const pagesObj = `3 0 obj
+<< /Type /Pages /Kids [${pageRefs}] /Count ${pages.length} >>
+endobj
+`;
+  offsets[3] = offset; offset += pagesObj.length; pdfLines.push(pagesObj);
+
+  const NL = String.fromCharCode(10);
+  const xrefEntries = offsets.slice(1).map(o => (o||0).toString().padStart(10,'0') + ' 00000 n ').join(NL);
+  const xref = 'xref' + NL + '0 ' + (4+pages.length*2) + NL + '0000000000 65535 f ' + NL + xrefEntries + NL;
+  const trailer = 'trailer' + NL + '<< /Size ' + (4+pages.length*2) + ' /Root 3 0 R >>' + NL + 'startxref' + NL + offset + NL + '%%EOF';
+  const fullPdf = pdfLines.join('') + xref + trailer;
+
+  const fname = (tipo === 'produzido' ? 'Lista_Producao_' : 'Lista_Compras_') + day + '.pdf';
+  const blob = new Blob([fullPdf], {type:'application/pdf'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = fname; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('PDF ' + (tipo === 'produzido' ? 'Produção' : 'Compras') + ' gerado!');
+}
+
 // ═══ ENVIOS DO DIA ═══════════════════════════════════════════════════════════
 function viewEnviosDia() {
   const frag = document.createDocumentFragment();
@@ -6956,10 +7199,23 @@ function viewEnviosDia() {
   const _norm   = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 
   // ── Cabeçalho ──────────────────────────────────────────────────────────────
-  const hdrWrap = el('div', {style:'display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px'});
+  const hdrWrap = el('div', {style:'display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px'});
   hdrWrap.appendChild(el('h2', {cls:'table-title'}, 'Envios do Dia'));
   const dayBadge = el('span', {cls:'envios-dia-day-badge'}, '\uD83D\uDE9A ' + dayFull);
   hdrWrap.appendChild(dayBadge);
+  // Botões PDF
+  const pdfWrap = el('div', {style:'display:flex;gap:6px;margin-left:auto;flex-wrap:wrap'});
+  const btnProd = el('button', {cls:'btn btn-outline btn-sm', style:'font-size:12px;display:flex;align-items:center;gap:5px'});
+  btnProd.innerHTML = '\uD83D\uDCC4 PDF Produ\u00E7\u00E3o';
+  btnProd.title = 'Lista de itens produzidos que faltam no CPD';
+  btnProd.addEventListener('click', () => gerarPdfEnvios('produzido'));
+  const btnComp = el('button', {cls:'btn btn-outline btn-sm', style:'font-size:12px;display:flex;align-items:center;gap:5px'});
+  btnComp.innerHTML = '\uD83D\uDCC4 PDF Compras';
+  btnComp.title = 'Lista de itens comprados que faltam no CPD';
+  btnComp.addEventListener('click', () => gerarPdfEnvios('comprado'));
+  pdfWrap.appendChild(btnProd);
+  pdfWrap.appendChild(btnComp);
+  hdrWrap.appendChild(pdfWrap);
   frag.appendChild(hdrWrap);
 
   // ── Coletar todos os itens que precisam de envio ───────────────────────────
