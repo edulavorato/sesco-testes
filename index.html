@@ -7200,8 +7200,11 @@ endobj
   const trailer = 'trailer' + NL + '<< /Size ' + (4+pages.length*2) + ' /Root 3 0 R >>' + NL + 'startxref' + NL + offset + NL + '%%EOF';
   const fullPdf = pdfLines.join('') + xref + trailer;
 
+  // Converter para Uint8Array (Latin-1) para PDF binário correto
   const fname = (tipo === 'produzido' ? 'Lista_Producao_' : 'Lista_Compras_') + day + '.pdf';
-  const blob = new Blob([fullPdf], {type:'application/pdf'});
+  const bArr = new Uint8Array(fullPdf.length);
+  for (let i = 0; i < fullPdf.length; i++) bArr[i] = fullPdf.charCodeAt(i) & 0xff;
+  const blob = new Blob([bArr], {type:'application/pdf'});
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href = url; a.download = fname; a.click();
