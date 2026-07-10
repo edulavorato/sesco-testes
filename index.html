@@ -2304,7 +2304,7 @@ const ASA_SUL_CATALOG = [
   {id:'ur19',name:'Salaminho italiano',category:'Refrigerados',unit:'Peça'},
   {id:'ur20',name:'Tomate seco 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur21',name:'Presunto cozido',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur22',name:'Peperoni 1kg',category:'Refrigerados',unit:'PCT'},
+  {id:'ur22',name:'Peperoni',category:'Refrigerados',unit:'PCT'},
   {id:'ur23',name:'Bacon fatiado cru',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur24',name:'Presunto parma 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur25',name:'Lascas de coco 200g',category:'Refrigerados',unit:'PCT'},
@@ -2613,7 +2613,7 @@ const SIG_CATALOG = [
   {id:'ur19',name:'Salaminho italiano',category:'Refrigerados',unit:'Peça'},
   {id:'ur20',name:'Tomate seco 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur21',name:'Presunto cozido',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur22',name:'Peperoni 1kg',category:'Refrigerados',unit:'PCT'},
+  {id:'ur22',name:'Peperoni',category:'Refrigerados',unit:'PCT'},
   {id:'ur23',name:'Bacon fatiado cru',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur24',name:'Presunto parma 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur25',name:'Lascas de coco 200g',category:'Refrigerados',unit:'PCT'},
@@ -2858,7 +2858,7 @@ const VICENTE_PIRES_CATALOG = [
   {id:'ur19',name:'Salaminho italiano',category:'Refrigerados',unit:'Peça'},
   {id:'ur20',name:'Tomate seco 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur21',name:'Presunto cozido',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur22',name:'Peperoni 1kg',category:'Refrigerados',unit:'PCT'},
+  {id:'ur22',name:'Peperoni',category:'Refrigerados',unit:'PCT'},
   {id:'ur23',name:'Bacon fatiado cru',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur24',name:'Presunto parma 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur25',name:'Lascas de coco 200g',category:'Refrigerados',unit:'PCT'},
@@ -3161,7 +3161,7 @@ const DELIVERY_CATALOG = [
   {id:'ur16',name:'Salaminho italiano',category:'Refrigerados',unit:'Peça'},
   {id:'ur17',name:'Tomate seco 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur18',name:'Presunto cozido',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur19',name:'Peperoni 1kg',category:'Refrigerados',unit:'PCT'},
+  {id:'ur19',name:'Peperoni',category:'Refrigerados',unit:'PCT'},
   {id:'ur20',name:'Presunto parma 500g',category:'Refrigerados',unit:'PCT'},
   {id:'ur21',name:'Purê de abóbora 500g',category:'Refrigerados',unit:'Un'},
   {id:'ur22',name:'Molho pesto bisnaga',category:'Refrigerados',unit:'Galão'},
@@ -3344,7 +3344,7 @@ const ITENS_COMPRADOS = new Set([
   'Requeijão bisnaga 1,5kg',
   'Cream cheese',
   'Anchovas 50g',
-  'Peperoni 1kg',
+  'Peperoni',
   'Bacon fatiado cru',
   'Presunto parma 500g',
   'Semolina 10kg',
@@ -3372,8 +3372,12 @@ const ITENS_COMPRADOS = new Set([
 function classificarItem(itemName) {
   const _n = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
   const nm = _n(itemName);
+  // Match exato primeiro
   for (const p of ITENS_PRODUZIDOS) { if (_n(p) === nm) return 'produzido'; }
   for (const c of ITENS_COMPRADOS)  { if (_n(c) === nm) return 'comprado'; }
+  // Match por prefixo (ex: 'Peperoni' bate 'Peperoni 1kg' e vice-versa)
+  for (const p of ITENS_PRODUZIDOS) { if (nm.startsWith(_n(p)) || _n(p).startsWith(nm)) return 'produzido'; }
+  for (const c of ITENS_COMPRADOS)  { if (nm.startsWith(_n(c)) || _n(c).startsWith(nm)) return 'comprado'; }
   return 'outro';
 }
 
@@ -3403,7 +3407,7 @@ const MIN_PER_DAY_ASA_SUL = {
   'Salaminho italiano':{'SEG':2,'QUA':2,'SEX':4},
   'Tomate seco 500g':{'SEG':5,'QUA':5,'SEX':10},
   'Presunto cozido':{'SEG':4,'QUA':4,'SEX':8},
-  'Peperoni 1kg':{'SEG':2,'QUA':2,'SEX':4},
+  'Peperoni':{'SEG':2,'QUA':2,'SEX':4},
   'Bacon fatiado cru':{'SEG':3,'QUA':3,'SEX':4},
   'Presunto parma 500g':{'SEG':4,'QUA':4,'SEX':6},
   'Lascas de coco 200g':{'SEG':4,'QUA':4,'SEX':6},
@@ -3712,7 +3716,7 @@ const MIN_PER_DAY_SIG = {
   'Salaminho italiano':{'SEG':2,'QUA':2,'SEX':3},
   'Tomate seco 500g':{'SEG':3,'QUA':3,'SEX':5},
   'Presunto cozido':{'SEG':2,'QUA':2,'SEX':6},
-  'Peperoni 1kg':{'SEG':1,'QUA':1,'SEX':2},
+  'Peperoni':{'SEG':1,'QUA':1,'SEX':2},
   'Bacon fatiado cru':{'SEG':2,'QUA':2,'SEX':3},
   'Presunto parma 500g':{'SEG':2,'QUA':2,'SEX':3},
   'Lascas de coco 200g':{'SEG':3,'QUA':3,'SEX':4},
@@ -3957,7 +3961,7 @@ const MIN_PER_DAY_VICENTE_PIRES = {
   'Salaminho italiano':{'SEG':3,'QUA':3,'SEX':5},
   'Tomate seco 500g':{'SEG':5,'QUA':5,'SEX':10},
   'Presunto cozido':{'SEG':5,'QUA':5,'SEX':8},
-  'Peperoni 1kg':{'SEG':3,'QUA':3,'SEX':4},
+  'Peperoni':{'SEG':3,'QUA':3,'SEX':4},
   'Bacon fatiado cru':{'SEG':3,'QUA':3,'SEX':4},
   'Presunto parma 500g':{'SEG':4,'QUA':4,'SEX':6},
   'Lascas de coco 200g':{'SEG':3,'QUA':3,'SEX':6},
@@ -4259,7 +4263,7 @@ const MIN_PER_DAY_DELIVERY = {
   'Salaminho italiano':{'SEG':1,'QUA':1,'SEX':2},
   'Tomate seco 500g':{'SEG':3,'QUA':3,'SEX':6},
   'Presunto cozido':{'SEG':2,'QUA':2,'SEX':4},
-  'Peperoni 1kg':{'SEG':1,'QUA':1,'SEX':2},
+  'Peperoni':{'SEG':1,'QUA':1,'SEX':2},
   'Presunto parma 500g':{'SEG':2,'QUA':2,'SEX':3},
   'Purê de abóbora 500g':{'SEG':2,'QUA':2,'SEX':4},
   'Molho pesto bisnaga':{'SEG':1,'SEX':1},
