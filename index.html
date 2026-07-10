@@ -7124,25 +7124,54 @@ function gerarPdfEnvios(tipo) {
   const rowH = 15;
   let lastCat = null;
 
+  // Quebrar texto longo em múltiplas linhas (baseado em largura estimada)
+  // Fonte 7pt: ~4.2px por char. Coluna PARA: W-mr - col[3] = ~250px → ~59 chars por linha
+  function wrapText(text, maxChars) {
+    const words = text.split(', ');
+    const lines = [];
+    let cur = '';
+    words.forEach(w => {
+      const test = cur ? cur + ', ' + w : w;
+      if (test.length > maxChars && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
   linhas.forEach((row, i) => {
     if (row.category !== lastCat) {
       lastCat = row.category;
-      if (y < 60) return; // proteção
-      c(rgb(220,238,224)+' rg '+ml+' '+(y-12)+' '+(W-ml-mr)+' 13 re f');
+      if (y < 70) return;
+      c(rgb(220,238,224)+' rg '+ml+' '+(y-13)+' '+(W-ml-mr)+' 14 re f');
       c('BT /F1 8 Tf '+rgb(16,48,22)+' rg '+(ml+4)+' '+(y-9)+' Td '+pdfStr(row.category.toUpperCase())+' Tj ET');
-      y -= 14;
+      y -= 15;
     }
     if (y < 50) return;
-    if (i % 2 === 0) c(rgb(253,252,247)+' rg '+ml+' '+(y-rowH)+' '+(W-ml-mr)+' '+rowH+' re f');
-    else             c(rgb(245,242,232)+' rg '+ml+' '+(y-rowH)+' '+(W-ml-mr)+' '+rowH+' re f');
 
-    const nm = row.name.length > 38 ? row.name.substring(0,38)+'...' : row.name;
-    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+col[0]+' '+(y-rowH+4)+' Td '+pdfStr(nm)+' Tj ET');
-    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+col[1]+' '+(y-rowH+4)+' Td '+pdfStr(row.unit)+' Tj ET');
-    c('BT /F1 10 Tf '+rgb(180,40,40)+' rg '+col[2]+' '+(y-rowH+4)+' Td ('+row.falta+') Tj ET');
-    c('BT /F2 7 Tf '+rgb(80,80,80)+' rg '+col[3]+' '+(y-rowH+4)+' Td '+pdfStr(row.detalhe)+' Tj ET');
-    c(rgb(218,215,197)+' RG 0.3 w '+ml+' '+(y-rowH)+' m '+(W-mr)+' '+(y-rowH)+' l S');
-    y -= rowH;
+    // Calcular altura dinâmica baseada nas linhas do detalhe
+    const detLines = wrapText(row.detalhe, 52);
+    const lineSpacing = 10;
+    const dynH = Math.max(rowH, 8 + detLines.length * lineSpacing);
+
+    if (i % 2 === 0) c(rgb(253,252,247)+' rg '+ml+' '+(y-dynH)+' '+(W-ml-mr)+' '+dynH+' re f');
+    else             c(rgb(245,242,232)+' rg '+ml+' '+(y-dynH)+' '+(W-ml-mr)+' '+dynH+' re f');
+
+    // Centralizar verticalmente item, UN e FALTA
+    const midY = y - dynH/2 - 3;
+    const nm = row.name.length > 36 ? row.name.substring(0,36)+'...' : row.name;
+    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+col[0]+' '+midY+' Td '+pdfStr(nm)+' Tj ET');
+    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+col[1]+' '+midY+' Td '+pdfStr(row.unit)+' Tj ET');
+    c('BT /F1 10 Tf '+rgb(180,40,40)+' rg '+col[2]+' '+midY+' Td ('+row.falta+') Tj ET');
+
+    // Renderizar linhas do detalhe
+    detLines.forEach((dl, di) => {
+      const lineY = (y - 6) - di * lineSpacing;
+      c('BT /F2 7.5 Tf '+rgb(60,60,60)+' rg '+col[3]+' '+lineY+' Td '+pdfStr(dl)+' Tj ET');
+    });
+
+    c(rgb(218,215,197)+' RG 0.3 w '+ml+' '+(y-dynH)+' m '+(W-mr)+' '+(y-dynH)+' l S');
+    y -= dynH;
   });
 
   // Footer
