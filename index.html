@@ -7659,38 +7659,37 @@ function viewEnviosDia() {
     const ustock = unitStock[unitName] || {};
     const minMap = getMinPerDay(unitName);
 
-    // Processar cada item do catálogo — acumular se mesmo item aparece em múltiplas categorias
-    const _seenInUnit = {}; // para somar aEnviar de categorias diferentes do mesmo item
+    // Processar cada item do catálogo
+    // Itens com mesmo nome em categorias diferentes (ex: Morango em Refrig + Bar):
+    // → SOMAR estoques de todos os IDs
+    // → calcAEnviar já usa MIN_PER_DAY consolidado (soma de todas as categorias)
+    const _seenInUnit = {}; // key normalizado → { name, estSoma, item }
+
     ucat.forEach(item => {
-      const est = ustock[item.id] || 0;
-      const aEnviar = calcAEnviar(unitName, item.name, est, day);
-      if (aEnviar === 0) return; // sem mínimo para este dia ou unidade já tem
-
       const key = _norm(item.name);
-
-      // Registrar para acumulação dentro da unidade
+      const est = ustock[item.id] || 0;
       if (!_seenInUnit[key]) {
-        _seenInUnit[key] = { name: item.name, est, aEnviar };
+        _seenInUnit[key] = { name: item.name, estSoma: est, item };
       } else {
-        // Mesmo item em outra categoria — NÃO somar aEnviar
-        // calcAEnviar já usa o MIN_PER_DAY que soma todas as categorias
-        // Apenas garantir que usamos o menor estoque (mais conservador)
-        // Na prática o estoque é o mesmo pois item.id pode diferir mas é o mesmo produto
-        _seenInUnit[key].est = Math.min(_seenInUnit[key].est, est);
+        // Mesmo item em outra categoria: SOMAR estoques
+        _seenInUnit[key].estSoma += est;
       }
     });
 
-    Object.values(_seenInUnit).forEach(({ name, est, aEnviar }) => {
+    Object.values(_seenInUnit).forEach(({ name, estSoma, item }) => {
+      // Calcular aEnviar com estoque SOMADO de todos os IDs
+      const aEnviar = calcAEnviar(unitName, name, estSoma, day);
+      if (aEnviar === 0) return; // sem mínimo para este dia ou unidade já tem
+
       if (!itemMap.has(name)) {
         const cpdItem = catalog.find(c => _norm(c.name) === _norm(name));
         itemMap.set(name, {
-          name, unit: ucat.find(i => _norm(i.name) === _norm(name))?.unit || '',
-          category: ucat.find(i => _norm(i.name) === _norm(name))?.category || '',
+          name, unit: item.unit, category: item.category,
           estCPD: cpdItem ? (cpd[cpdItem.id] || 0) : 0,
           perUnit: {}
         });
       }
-      itemMap.get(name).perUnit[unitName] = { est, aEnviar };
+      itemMap.get(name).perUnit[unitName] = { est: estSoma, aEnviar };
     });
   });
 
