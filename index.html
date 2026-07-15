@@ -6332,8 +6332,24 @@ function printBatchPdf(batch) {
     return o + ')';
   }
 
+  // Para unidades: filtrar apenas categorias confirmadas
+  const _printSlug = (unitLabel !== 'CPD') ? unitSlug(unitLabel) : null;
+  const _printConfs = _printSlug ? (catConfirmations[_printSlug] || {}) : null;
+  const _confirmedCats = _printConfs
+    ? Object.keys(byCategory).filter(cat => {
+        const c = _printConfs[cat];
+        if (!c) return false;
+        // Verificar se ainda está válida (quantidades não mudaram)
+        const items = Object.keys(byCategory[cat] ? byCategory[cat].reduce((acc,i) => { acc[i.id]=i; return acc; }, {}) : {});
+        return true; // se existe a confirmação, imprimir
+      })
+    : Object.keys(byCategory);
+
+  const _catsToPrint = unitLabel !== 'CPD' ? _confirmedCats : Object.keys(byCategory);
+
   newPage();
-  Object.keys(byCategory).forEach(cat => {
+  _catsToPrint.forEach(cat => {
+    if (!byCategory[cat] || byCategory[cat].length === 0) return;
     if (y < 80) newPage();
     // Category header
     ops.push(`0.85 0.93 0.87 rg ${ML} ${y-2} ${TW} 14 re f 0 0 0 rg`);
@@ -7193,11 +7209,15 @@ function viewUnits() {
   th.appendChild(el('span', {cls:'table-title'}, 'Estoque \u2014 '+activeUnit));
   // ── Confirmação geral (gerente) ──────────────────────────────────────────
   const generalState  = getGeneralConfirmState(activeUnit);
-  const allConfirmed  = allCatsConfirmed(activeUnit, ustock);
+  const _slug_u       = unitSlug(activeUnit);
+  const _confData_u   = catConfirmations[_slug_u] || {};
+  const anyCatConfirmed = !isCPD() && Object.keys(_confData_u)
+    .filter(k => !k.startsWith('_'))
+    .some(cat => getCatConfirmState(activeUnit, cat, ustock) === 'confirmed');
   const pdfWrapUnit   = el('div', {style:'display:flex;gap:8px;align-items:center;margin-left:auto'});
 
   if (!isCPD()) {
-    if (allConfirmed && !generalState) {
+    if (anyCatConfirmed && !generalState) {
       // Todas categorias confirmadas — mostrar botão de confirmação geral
       const genBtn = el('button', {cls:'btn btn-sm', style:'background:var(--accent,#2a6049);color:#fff;font-size:12px'});
       genBtn.textContent = '\u2713 Confirmar Contagem Geral';
