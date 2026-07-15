@@ -4719,6 +4719,17 @@ function markCatModified(unitName, cat) {
   }
 }
 
+// Remover confirmação de uma categoria
+function deconfirmCategory(unitName, cat) {
+  const slug = unitSlug(unitName);
+  if (catConfirmations[slug] && catConfirmations[slug][cat]) {
+    delete catConfirmations[slug][cat];
+    // Invalidar confirmação geral também
+    if (catConfirmations[slug]._general) delete catConfirmations[slug]._general;
+    save('pizza_cat_confirms', catConfirmations);
+  }
+}
+
 function saveUnitCatalog(unitName, catalogData) {
   const slug = unitSlug(unitName);
   // 1. Atualizar cache em memória
@@ -5704,15 +5715,68 @@ function el(tag, attrs={}, ...children) {
           confBtn.setAttribute('data-conf-cat', cat);
           confBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openConfirmModal(
-              'Confirmar: ' + cat,
-              'Confirme a contagem desta categoria digitando seu nome.',
-              (name) => {
-                confirmCategory(unitName, cat, name, stockObj);
-                toast('\u2713 ' + cat + ' confirmada por ' + name);
-                render();
-              }
-            );
+            if (confState === 'confirmed') {
+              // Já confirmada: mostrar menu com opções
+              const existing = document.getElementById('conf-menu-' + CSS.escape(cat));
+              if (existing) { existing.remove(); return; }
+              const menu = el('div', {
+                style: 'position:absolute;z-index:2000;background:var(--surface);' +
+                       'border:1.5px solid var(--border);border-radius:var(--radius);' +
+                       'box-shadow:0 4px 16px rgba(0,0,0,.2);min-width:180px;overflow:hidden'
+              });
+              menu.id = 'conf-menu-' + CSS.escape(cat);
+              const rect = confBtn.getBoundingClientRect();
+              menu.style.cssText += ';position:fixed;top:'+(rect.bottom+4)+'px;left:'+rect.left+'px';
+              const reconfOpt = el('button', {
+                style:'display:block;width:100%;text-align:left;padding:10px 14px;font-size:13px;' +
+                      'border:none;background:none;cursor:pointer;color:var(--text)'
+              }, '✏️ Reconfirmar');
+              reconfOpt.addEventListener('click', () => {
+                menu.remove();
+                openConfirmModal(
+                  'Reconfirmar: ' + cat,
+                  'Atualize a confirmação desta categoria.',
+                  (name) => {
+                    confirmCategory(unitName, cat, name, stockObj);
+                    toast('\u2713 ' + cat + ' reconfirmada por ' + name);
+                    render();
+                  }
+                );
+              });
+              const deconfOpt = el('button', {
+                style:'display:block;width:100%;text-align:left;padding:10px 14px;font-size:13px;' +
+                      'border:none;background:none;cursor:pointer;color:var(--danger,#C53030);' +
+                      'border-top:1px solid var(--border)'
+              }, '✕ Desconfirmar');
+              deconfOpt.addEventListener('click', () => {
+                menu.remove();
+                if (confirm('Desconfirmar "' + cat + '"? A categoria deixará de aparecer no PDF geral.')) {
+                  deconfirmCategory(unitName, cat);
+                  toast(cat + ' desconfirmada');
+                  render();
+                }
+              });
+              menu.appendChild(reconfOpt);
+              menu.appendChild(deconfOpt);
+              document.body.appendChild(menu);
+              // Fechar ao clicar fora
+              setTimeout(() => {
+                document.addEventListener('click', function _close(ev) {
+                  if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', _close); }
+                });
+              }, 50);
+            } else {
+              // Não confirmada: abrir modal de confirmação diretamente
+              openConfirmModal(
+                'Confirmar: ' + cat,
+                'Confirme a contagem desta categoria digitando seu nome.',
+                (name) => {
+                  confirmCategory(unitName, cat, name, stockObj);
+                  toast('\u2713 ' + cat + ' confirmada por ' + name);
+                  render();
+                }
+              );
+            }
           });
           catWrap.appendChild(confBtn);
 
