@@ -4427,13 +4427,13 @@ const MIN_PER_DAY_DELIVERY = {
 
 // Retorna mapa min_per_day para uma unidade
 function getMinPerDay(unitName) {
-  switch(unitName) {
-    case 'Asa Sul':       return MIN_PER_DAY_ASA_SUL;
-    case 'SIG':           return MIN_PER_DAY_SIG;
-    case 'Vicente Pires': return MIN_PER_DAY_VICENTE_PIRES;
-    case 'Delivery':      return MIN_PER_DAY_DELIVERY;
-    default: return {};
-  }
+  // Normalizar nome para garantir match independente de formato
+  const u = (unitName || '').trim();
+  if (u === 'Asa Sul'       || u === 'asa_sul')        return MIN_PER_DAY_ASA_SUL;
+  if (u === 'SIG'           || u === 'sig')             return MIN_PER_DAY_SIG;
+  if (u === 'Vicente Pires' || u === 'vicente_pires')   return MIN_PER_DAY_VICENTE_PIRES;
+  if (u === 'Delivery'      || u === 'delivery')        return MIN_PER_DAY_DELIVERY;
+  return {};
 }
 
 // Calcula quantidade a enviar para um item específico
@@ -5622,10 +5622,25 @@ function el(tag, attrs={}, ...children) {
     // Sem busca: restaurar visibilidade normal (sem recriar DOM se já existe)
     tbody.querySelectorAll('tr.empty-search-row').forEach(r => r.remove());
     if (tbody.querySelectorAll('tr[data-item-id]').length > 0) {
-      // Linhas já existem — só ajustar visibilidade
+      // Linhas já existem — ajustar visibilidade E atualizar células dinâmicas
       tbody.querySelectorAll('tr[data-item-id]').forEach(tr => {
         const cat = tr.getAttribute('data-cat');
         tr.style.display = openCats[cat] === true ? '' : 'none';
+        // Atualizar coluna "A Enviar" com valores atuais de estoque
+        if (hasEnviarCol) {
+          const itemId  = tr.getAttribute('data-item-id');
+          const itemName = tr.getAttribute('data-item-name');
+          const qtyCell = tr.querySelector('[data-qty-cell]');
+          const envCell = tr.querySelector('[data-aenviar-cell]');
+          if (envCell && itemName) {
+            const _qty    = parseInt((qtyCell && qtyCell.textContent) || '0') || (stockObj[itemId] || 0);
+            const _unitD  = opts.unitForDisplay || opts.pdfLabel || opts.unitName || '';
+            const _day    = nextEnviarDay();
+            const _aEnv   = calcAEnviar(_unitD, itemName, _qty, _day);
+            envCell.textContent = _aEnv > 0 ? String(_aEnv) : '\u2014';
+            envCell.style.color = _aEnv > 0 ? 'var(--accent-dark,#2a6049)' : 'var(--text-3)';
+          }
+        }
       });
       tbody.querySelectorAll('tr.cat-row').forEach(catTr => { catTr.style.display = ''; });
       return;
@@ -5970,7 +5985,8 @@ function el(tag, attrs={}, ...children) {
           tr.appendChild(qtyTd);
           if (hasEnviarCol) {
             // A Enviar = max(0, Mínimo do Dia de Entrega − Estoque Atual)
-            const _unitDisp = opts.unitForDisplay || '';
+            // Prioridade: unitForDisplay (aba de unidade) > pdfLabel > unitName
+            const _unitDisp = opts.unitForDisplay || opts.pdfLabel || opts.unitName || '';
             const _day = nextEnviarDay();
             const aEnviar = calcAEnviar(_unitDisp, item.name, qty, _day);
             const envTd = el('td', {style:'text-align:right;font-weight:700;color:' + (aEnviar > 0 ? 'var(--accent-dark,#2a6049)' : 'var(--text-3)')});
@@ -6409,7 +6425,13 @@ function printBatchPdf(batch) {
       })
     : Object.keys(byCategory);
 
-  const _catsToPrint = unitLabel !== 'CPD' ? _confirmedCats : Object.keys(byCategory);
+  // PDF geral de unidade: só categorias confirmadas (regra de negócio)
+  // PDF de categoria específica (onlyCategory): sempre mostra aquela categoria
+  // PDF gerado pelo CPD de uma unidade: mostra tudo (CPD tem visão completa)
+  const _isCPDViewing = (typeof isCPD === 'function' && isCPD());
+  const _catsToPrint = (unitLabel === 'CPD' || _isCPDViewing || onlyCategory)
+    ? Object.keys(byCategory)
+    : _confirmedCats;
 
   newPage();
   _catsToPrint.forEach(cat => {
