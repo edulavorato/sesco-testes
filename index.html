@@ -7659,22 +7659,38 @@ function viewEnviosDia() {
     const ustock = unitStock[unitName] || {};
     const minMap = getMinPerDay(unitName);
 
+    // Processar cada item do catálogo — acumular se mesmo item aparece em múltiplas categorias
+    const _seenInUnit = {}; // para somar aEnviar de categorias diferentes do mesmo item
     ucat.forEach(item => {
-      // Usar calcAEnviar() que normaliza o nome — evita falhas por acento/capitalização
-      const est     = ustock[item.id] || 0;
+      const est = ustock[item.id] || 0;
       const aEnviar = calcAEnviar(unitName, item.name, est, day);
       if (aEnviar === 0) return; // sem mínimo para este dia ou unidade já tem
 
-      if (!itemMap.has(item.name)) {
-        // Localizar item no catálogo CPD pelo nome (para pegar estoque CPD)
-        const cpdItem = catalog.find(c => _norm(c.name) === _norm(item.name));
-        itemMap.set(item.name, {
-          name: item.name, unit: item.unit, category: item.category,
+      const key = _norm(item.name);
+
+      // Registrar para acumulação dentro da unidade
+      if (!_seenInUnit[key]) {
+        _seenInUnit[key] = { name: item.name, est, aEnviar };
+      } else {
+        // Mesmo item em outra categoria — NÃO somar aEnviar
+        // calcAEnviar já usa o MIN_PER_DAY que soma todas as categorias
+        // Apenas garantir que usamos o menor estoque (mais conservador)
+        // Na prática o estoque é o mesmo pois item.id pode diferir mas é o mesmo produto
+        _seenInUnit[key].est = Math.min(_seenInUnit[key].est, est);
+      }
+    });
+
+    Object.values(_seenInUnit).forEach(({ name, est, aEnviar }) => {
+      if (!itemMap.has(name)) {
+        const cpdItem = catalog.find(c => _norm(c.name) === _norm(name));
+        itemMap.set(name, {
+          name, unit: ucat.find(i => _norm(i.name) === _norm(name))?.unit || '',
+          category: ucat.find(i => _norm(i.name) === _norm(name))?.category || '',
           estCPD: cpdItem ? (cpd[cpdItem.id] || 0) : 0,
           perUnit: {}
         });
       }
-      itemMap.get(item.name).perUnit[unitName] = { est, aEnviar };
+      itemMap.get(name).perUnit[unitName] = { est, aEnviar };
     });
   });
 
