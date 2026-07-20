@@ -500,20 +500,20 @@
   .valid-register-btn { margin-bottom:16px; }
   /* Tabela de validade estilo contagem */
   .valid-table { width:100%; border-collapse:collapse; }
+  .valid-table {width:100%;border-collapse:collapse;table-layout:fixed;}
   .valid-table thead th {
     font-family:'Lato',sans-serif; font-size:10px; font-weight:700;
     text-transform:uppercase; letter-spacing:.5px; color:var(--text-3);
-    padding:8px 10px; text-align:left; background:var(--surface-2);
+    padding:8px 10px; background:var(--surface-2);
     border-bottom:1.5px solid var(--border);
   }
-  .valid-table thead th.right { text-align:right; }
   .valid-table tbody td {
-    padding:8px 10px; font-size:13px; color:var(--text);
+    padding:7px 10px; font-size:13px; color:var(--text);
     border-bottom:1px solid var(--border); vertical-align:middle;
+    overflow:hidden; text-overflow:ellipsis;
   }
   .valid-table tbody tr:last-child td { border-bottom:none; }
   .valid-table tbody tr:nth-child(even) td { background:var(--surface-2); }
-  .valid-table td.right { text-align:right; }
   /* Cat header dentro da tabela */
   .valid-cat-row td {
     padding:7px 10px; font-family:'Lato',sans-serif; font-size:10px;
@@ -8117,12 +8117,21 @@ function viewValidadeControl() {
 
       // Tabela com TODOS os itens do catálogo
       const tableWrap = el('div', {cls:'table-wrap', style:'padding:0'});
-      const table = el('table', {cls:'valid-table'});
+      const table = el('table', {cls:'valid-table', style:'table-layout:fixed'});
+
+      // Larguras das colunas
+      const colgroup = document.createElement('colgroup');
+      [null, '60px', null, '36px'].forEach((w, i) => {
+        const col = document.createElement('col');
+        if (w) col.style.width = w;
+        colgroup.appendChild(col);
+      });
+      table.appendChild(colgroup);
 
       const thead = el('thead');
       const thrHead = el('tr');
-      ['Item','UN','Lotes cadastrados','+'].forEach((h,i) => {
-        const th = el('th', {cls: i >= 2 ? 'right' : ''});
+      [['Item','left'],['UN','left'],['Lotes cadastrados','right'],['+','center']].forEach(([h, align]) => {
+        const th = el('th', {style:'text-align:'+align});
         th.textContent = h;
         thrHead.appendChild(th);
       });
@@ -8156,15 +8165,15 @@ function viewValidadeControl() {
         const catTr = el('tr', {cls:'valid-cat-row', style:'cursor:pointer;user-select:none'});
         const catTd = el('td');
         catTd.setAttribute('colspan', '4');
-        catTd.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px';
+        catTd.style.cssText = 'padding:7px 10px';
 
-        const catLeft = el('span', {style:'display:flex;align-items:center;gap:8px'});
+        const catLeft = el('span', {style:'display:inline-flex;align-items:center;gap:8px'});
         const chevron = el('span', {cls:'vcat-chevron', style:'font-size:10px;transition:transform .2s;display:inline-block'}, '▼');
         catLeft.appendChild(chevron);
         catLeft.appendChild(el('span', {}, cat));
 
         // Badges de alerta inline no cabeçalho
-        const catRight = el('span', {style:'display:flex;align-items:center;gap:6px'});
+        const catRight = el('span', {style:'display:inline-flex;align-items:center;gap:6px;float:right'});
         if (nExpCat > 0) {
           const b = el('span', {style:'font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:rgba(197,48,48,.18);color:#C53030'});
           b.textContent = nExpCat + ' vencido' + (nExpCat > 1 ? 's' : '');
@@ -8235,7 +8244,7 @@ function viewValidadeControl() {
           tr.appendChild(tdLotes);
 
           // Botão +
-          const tdAdd = el('td', {style:'text-align:right;width:32px'});
+          const tdAdd = el('td', {style:'text-align:center;width:36px;padding:4px 6px'});
           const addBtn = el('button', {cls:'valid-lote-consume', style:'font-size:16px;font-weight:700', title:'Adicionar lote'}, '+');
           addBtn.addEventListener('click', e => {
             e.stopPropagation();
