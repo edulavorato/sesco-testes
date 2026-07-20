@@ -7706,9 +7706,16 @@ function viewEnviosDia() {
     });
 
     Object.values(_seenInUnit).forEach(({ name, estSoma, item }) => {
-      // Calcular aEnviar com estoque SOMADO de todos os IDs
+      // Incluir item se tem mínimo para este dia (independente de aEnviar)
+      // Isso garante que todos os itens relevantes aparecem na tabela
+      const minDia = (() => {
+        const minMap = getMinPerDay(unitName);
+        const key2 = Object.keys(minMap).find(k => _norm(k) === _norm(name));
+        return key2 ? (minMap[key2][day] || 0) : 0;
+      })();
+      if (minDia === 0) return; // sem mínimo para este dia — não é relevante
+
       const aEnviar = calcAEnviar(unitName, name, estSoma, day);
-      if (aEnviar === 0) return; // sem mínimo para este dia ou unidade já tem
 
       if (!itemMap.has(name)) {
         const cpdItem = catalog.find(c => _norm(c.name) === _norm(name));
@@ -7718,6 +7725,7 @@ function viewEnviosDia() {
           perUnit: {}
         });
       }
+      // Sempre registrar: estoque e aEnviar (pode ser 0 se unidade já tem suficiente)
       itemMap.get(name).perUnit[unitName] = { est: estSoma, aEnviar };
     });
   });
@@ -7872,10 +7880,17 @@ function viewEnviosDia() {
         const tdEst = el('td', {cls:'u-sep'});
         const tdEnv = el('td');
         if (pu) {
+          // Mostrar estoque sempre; A Enviar: valor se > 0, '—' se 0 (unidade já tem suficiente)
           tdEst.textContent = String(pu.est);
-          tdEnv.textContent = String(pu.aEnviar);
-          tdEnv.className = 'val-env';
+          if (pu.aEnviar > 0) {
+            tdEnv.textContent = String(pu.aEnviar);
+            tdEnv.className = 'val-env';
+          } else {
+            tdEnv.textContent = '\u2014';
+            tdEnv.className = 'val-dash';
+          }
         } else {
+          // Unidade não tem este item no catálogo ou sem mínimo para o dia
           tdEst.textContent = '\u2014';
           tdEst.className = 'val-dash u-sep';
           tdEnv.textContent = '\u2014';
