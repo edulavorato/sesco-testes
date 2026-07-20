@@ -496,45 +496,47 @@
     touch-action:manipulation;
   }
   .valid-unit-tab.active { background:var(--accent,#2a6049); color:#fff; border-color:var(--accent,#2a6049); }
-  .valid-section { margin-bottom:20px; }
-  .valid-section-hdr {
-    display:flex; align-items:center; gap:8px;
-    padding:10px 14px; border-radius:var(--radius) var(--radius) 0 0;
-    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px;
-    border:1.5px solid transparent; border-bottom:none;
+  .valid-empty { padding:28px; text-align:center; color:var(--text-3); font-size:13px; }
+  .valid-register-btn { margin-bottom:16px; }
+  /* Tabela de validade estilo contagem */
+  .valid-table { width:100%; border-collapse:collapse; }
+  .valid-table thead th {
+    font-family:'Lato',sans-serif; font-size:10px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.5px; color:var(--text-3);
+    padding:8px 10px; text-align:left; background:var(--surface-2);
+    border-bottom:1.5px solid var(--border);
   }
-  .valid-section-hdr.expired  { background:rgba(197,48,48,.1);  color:#9B2C2C; border-color:rgba(197,48,48,.25); }
-  .valid-section-hdr.alert    { background:rgba(214,158,46,.1); color:#7B6000; border-color:rgba(214,158,46,.25); }
-  .valid-section-hdr.ok       { background:rgba(56,161,105,.1); color:#22543D; border-color:rgba(56,161,105,.25); }
-  .valid-section-body {
-    border:1.5px solid var(--border); border-radius:0 0 var(--radius) var(--radius);
-    overflow:hidden;
+  .valid-table thead th.right { text-align:right; }
+  .valid-table tbody td {
+    padding:8px 10px; font-size:13px; color:var(--text);
+    border-bottom:1px solid var(--border); vertical-align:middle;
   }
-  .valid-section-hdr.expired + .valid-section-body { border-color:rgba(197,48,48,.25); }
-  .valid-section-hdr.alert   + .valid-section-body { border-color:rgba(214,158,46,.25); }
-  .valid-section-hdr.ok      + .valid-section-body { border-color:rgba(56,161,105,.25); }
-  .valid-lote-row {
-    display:flex; align-items:center; gap:10px; padding:10px 14px;
-    border-bottom:1px solid var(--border); background:var(--surface);
+  .valid-table tbody tr:last-child td { border-bottom:none; }
+  .valid-table tbody tr:nth-child(even) td { background:var(--surface-2); }
+  .valid-table td.right { text-align:right; }
+  /* Cat header dentro da tabela */
+  .valid-cat-row td {
+    padding:7px 10px; font-family:'Lato',sans-serif; font-size:10px;
+    font-weight:700; text-transform:uppercase; letter-spacing:.7px;
+    background:#EAF2EC; color:var(--accent-dark,#2a6049);
+    border-bottom:1px solid var(--border); border-top:1.5px solid var(--border);
   }
-  .valid-lote-row:last-child { border-bottom:none; }
-  .valid-lote-name { flex:1; font-size:13px; font-weight:500; color:var(--text); }
-  .valid-lote-qty  { font-size:12px; color:var(--text-2); min-width:60px; text-align:right; }
-  .valid-lote-date { font-size:12px; font-weight:700; min-width:80px; text-align:right; }
-  .valid-lote-date.expired { color:#C53030; }
-  .valid-lote-date.alert   { color:#C07A00; }
-  .valid-lote-date.ok      { color:#276749; }
-  .valid-lote-days { font-size:11px; color:var(--text-3); min-width:64px; text-align:right; }
+  /* Status dot na coluna de dias */
+  .valid-days-cell { display:flex; align-items:center; gap:5px; justify-content:flex-end; }
+  .valid-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .valid-dot.expired { background:#C53030; }
+  .valid-dot.alert   { background:#C07A00; }
+  .valid-dot.ok      { background:#276749; }
+  .valid-date-text.expired { color:#C53030; font-weight:700; }
+  .valid-date-text.alert   { color:#C07A00; font-weight:700; }
+  .valid-date-text.ok      { color:#276749; }
   .valid-lote-consume {
-    width:32px; height:32px; border-radius:50%; border:1.5px solid var(--border);
+    width:28px; height:28px; border-radius:50%; border:1.5px solid var(--border);
     background:var(--surface); cursor:pointer; display:flex; align-items:center;
-    justify-content:center; font-size:14px; flex-shrink:0;
+    justify-content:center; font-size:13px; flex-shrink:0;
     transition:all .15s; touch-action:manipulation;
   }
   .valid-lote-consume:hover { background:#EAF2EC; border-color:#2a9148; }
-  .valid-empty { padding:20px 14px; text-align:center; color:var(--text-3); font-size:13px; }
-  .valid-register-btn { margin-bottom:16px; }
-  .valid-lote-cadastro { font-size:10px; color:var(--text-3); }
 
   /* ── Histórico de Contagens ─────────────────────────────────────────────── */
   .hist-unit-tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
@@ -8070,88 +8072,137 @@ function viewValidadeControl() {
   function renderValidBody() {
     bodyEl.innerHTML = '';
     const slug3 = unitSlug(activeValidUnit);
-    const loadEl = el('div', {cls:'valid-empty'}, '\u23F3 Carregando...');
-    bodyEl.appendChild(loadEl);
+    bodyEl.appendChild(el('div', {cls:'valid-empty'}, '\u23F3 Carregando...'));
 
     db.ref('dados/validity_control/' + slug3).once('value').then(snap => {
       bodyEl.innerHTML = '';
-      const val = snap.val() || {};
-      const lotes = Object.entries(val).map(([id, d]) => ({ _id: id, ...d }));
-
+      const val    = snap.val() || {};
+      const lotes  = Object.entries(val).map(([id, d]) => ({ _id: id, ...d }));
       const today2 = new Date(); today2.setHours(0,0,0,0);
-      const in7    = new Date(today2); in7.setDate(in7.getDate() + 7);
 
-      const expired = [], alert = [], ok2 = [];
-      lotes.forEach(l => {
-        const dt = new Date(l.data_validade + 'T00:00:00');
-        const diffDays = Math.round((dt - today2) / 86400000);
-        l._diffDays = diffDays;
-        if (diffDays <= 0) expired.push(l);
-        else if (diffDays <= 7) alert.push(l);
-        else ok2.push(l);
-      });
-
-      // Ordenar por data
-      [expired, alert, ok2].forEach(arr => arr.sort((a,b) => a.data_validade.localeCompare(b.data_validade)));
-
-      if (lotes.length === 0) {
+      if (!lotes.length) {
         bodyEl.appendChild(el('div', {cls:'valid-empty'}, '\uD83D\uDCED Nenhum lote cadastrado para ' + activeValidUnit + '.'));
         return;
       }
 
-      function buildSection(title, clsName, items) {
-        if (!items.length) return;
-        const sec = el('div', {cls:'valid-section'});
-        const hdrSec = el('div', {cls:'valid-section-hdr ' + clsName});
-        hdrSec.textContent = title + ' (' + items.length + ')';
-        sec.appendChild(hdrSec);
-        const secBody = el('div', {cls:'valid-section-body'});
+      // Calcular diffDays e status de cada lote
+      lotes.forEach(l => {
+        const dt = new Date(l.data_validade + 'T00:00:00');
+        l._diffDays = Math.round((dt - today2) / 86400000);
+        l._status   = l._diffDays <= 0 ? 'expired' : l._diffDays <= 7 ? 'alert' : 'ok';
+      });
 
-        items.forEach(l => {
-          const row = el('div', {cls:'valid-lote-row'});
+      // Agrupar por categoria usando o catálogo da unidade (ordem correta)
+      const ucat = getUnitCatalog(activeValidUnit).catalog;
+      const ucats = getUnitCatalog(activeValidUnit).categories;
+      const _norm2 = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 
-          const infoCol = el('div', {style:'flex:1;min-width:0'});
-          infoCol.appendChild(el('div', {cls:'valid-lote-name'}, l.item_name));
-          const meta = el('div', {style:'display:flex;gap:8px;margin-top:2px;flex-wrap:wrap'});
-          meta.appendChild(el('span', {cls:'valid-lote-cadastro'}, 'Cad: ' + l.data_cadastro));
-          infoCol.appendChild(meta);
-          row.appendChild(infoCol);
+      // Mapa nome → categoria
+      const nameToCat = {};
+      ucat.forEach(i => { nameToCat[_norm2(i.name)] = i.category; });
 
-          row.appendChild(el('div', {cls:'valid-lote-qty'}, String(l.quantidade) + ' ' + l.unidade_medida));
+      // Agrupar lotes por categoria
+      const byCat = {};
+      ucats.forEach(c => { byCat[c] = []; });
+      const semCat = [];
+      lotes.forEach(l => {
+        const cat = nameToCat[_norm2(l.item_name)];
+        if (cat && byCat[cat]) byCat[cat].push(l);
+        else semCat.push(l);
+      });
+      if (semCat.length) byCat['Outros'] = semCat;
 
-          const dateCls = clsName === 'expired' ? 'expired' : clsName === 'alert' ? 'alert' : 'ok';
-          const dateEl2 = el('div', {cls:'valid-lote-date ' + dateCls});
-          dateEl2.textContent = new Date(l.data_validade + 'T00:00:00').toLocaleDateString('pt-BR');
-          row.appendChild(dateEl2);
+      // Contar alertas por tipo para o resumo
+      const nExp   = lotes.filter(l => l._status === 'expired').length;
+      const nAlert = lotes.filter(l => l._status === 'alert').length;
+      const nOk    = lotes.filter(l => l._status === 'ok').length;
 
-          const daysEl = el('div', {cls:'valid-lote-days'});
-          if (l._diffDays <= 0) daysEl.textContent = 'Vencido';
-          else if (l._diffDays === 1) daysEl.textContent = '1 dia';
-          else daysEl.textContent = l._diffDays + ' dias';
-          row.appendChild(daysEl);
+      // Resumo no topo
+      const resumo = el('div', {style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px'});
+      [['\uD83D\uDD34 Expirados', nExp, '#C53030'],
+       ['\uD83D\uDFE1 Alerta (7d)', nAlert, '#C07A00'],
+       ['\uD83D\uDFE2 No prazo', nOk, '#276749']].forEach(([lbl, cnt, col]) => {
+        const chip = el('div', {style:'padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:var(--surface-2);border:1.5px solid var(--border);color:'+col});
+        chip.textContent = lbl + ': ' + cnt;
+        resumo.appendChild(chip);
+      });
+      bodyEl.appendChild(resumo);
 
+      // Tabela
+      const tableWrap = el('div', {cls:'table-wrap', style:'padding:0'});
+      const table = el('table', {cls:'valid-table'});
+
+      const thead = el('thead');
+      const thrHead = el('tr');
+      ['Item','UN','Qtd','Validade','Dias',''].forEach((h,i) => {
+        const th = el('th', {cls: i >= 2 ? 'right' : ''}, h);
+        thrHead.appendChild(th);
+      });
+      thead.appendChild(thrHead);
+      table.appendChild(thead);
+
+      const tbody = el('tbody');
+      const allCats = [...ucats, ...(semCat.length ? ['Outros'] : [])];
+
+      allCats.forEach(cat => {
+        const catLotes = (byCat[cat] || []).slice()
+          .sort((a,b) => a.data_validade.localeCompare(b.data_validade));
+        if (!catLotes.length) return;
+
+        // Cabeçalho de categoria
+        const catTr = el('tr', {cls:'valid-cat-row'});
+        const catTd = el('td');
+        catTd.setAttribute('colspan', '6');
+        catTd.textContent = cat + ' (' + catLotes.length + ' lote' + (catLotes.length > 1 ? 's' : '') + ')';
+        catTr.appendChild(catTd);
+        tbody.appendChild(catTr);
+
+        catLotes.forEach(l => {
+          const tr = el('tr');
+          // Nome
+          tr.appendChild(el('td', {}, l.item_name));
+          // Unidade
+          tr.appendChild(el('td', {style:'color:var(--text-3);font-size:12px'}, l.unidade_medida));
+          // Quantidade
+          const tdQty = el('td', {cls:'right', style:'font-weight:600'}, String(l.quantidade));
+          tr.appendChild(tdQty);
+          // Validade
+          const dateStr = new Date(l.data_validade + 'T00:00:00').toLocaleDateString('pt-BR');
+          const tdDate  = el('td', {cls:'right valid-date-text ' + l._status}, dateStr);
+          tr.appendChild(tdDate);
+          // Dias
+          const tdDays = el('td', {cls:'right'});
+          const daysWrap = el('div', {cls:'valid-days-cell'});
+          const dot = el('span', {cls:'valid-dot ' + l._status});
+          const daysLbl = el('span', {style:'font-size:11px;color:var(--text-3)'});
+          if (l._diffDays <= 0)       daysLbl.textContent = 'Vencido';
+          else if (l._diffDays === 1) daysLbl.textContent = '1 dia';
+          else                         daysLbl.textContent = l._diffDays + ' dias';
+          daysWrap.append(daysLbl, dot);
+          tdDays.appendChild(daysWrap);
+          tr.appendChild(tdDays);
+          // Botão consumido
+          const tdBtn = el('td', {style:'text-align:right'});
           const consumeBtn = el('button', {cls:'valid-lote-consume', title:'Marcar como consumido/aberto'}, '\u2714');
           consumeBtn.addEventListener('click', () => {
             if (!confirm('Marcar "' + l.item_name + '" como consumido/aberto? O lote será removido.')) return;
-            const slug4 = unitSlug(activeValidUnit);
-            db.ref('dados/validity_control/' + slug4 + '/' + l._id).remove()
-              .then(() => { toast('\uD83D\uDDD1\uFE0F Lote removido'); renderValidBody(); })
+            db.ref('dados/validity_control/' + slug3 + '/' + l._id).remove()
+              .then(() => { toast('\u2705 Lote removido'); renderValidBody(); })
               .catch(e => toast('Erro: ' + e.message));
           });
-          row.appendChild(consumeBtn);
-          secBody.appendChild(row);
+          tdBtn.appendChild(consumeBtn);
+          tr.appendChild(tdBtn);
+          tbody.appendChild(tr);
         });
-        sec.appendChild(secBody);
-        bodyEl.appendChild(sec);
-      }
+      });
 
-      buildSection('\uD83D\uDD34 Expirados', 'expired', expired);
-      buildSection('\uD83D\uDFE1 Alerta de Consumo (7 dias)', 'alert', alert);
-      buildSection('\uD83D\uDFE2 No Prazo', 'ok', ok2);
+      table.appendChild(tbody);
+      tableWrap.appendChild(table);
+      bodyEl.appendChild(tableWrap);
 
     }).catch(e => {
       bodyEl.innerHTML = '';
-      bodyEl.appendChild(el('div', {cls:'valid-empty'}, '\u274C Erro ao carregar: ' + e.message));
+      bodyEl.appendChild(el('div', {cls:'valid-empty'}, '\u274C Erro: ' + e.message));
     });
   }
 
