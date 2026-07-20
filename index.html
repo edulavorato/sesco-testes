@@ -8131,15 +8131,57 @@ function viewValidadeControl() {
 
       const tbody = el('tbody');
 
+      // Estado de abertura por categoria — começa fechado
+      const openCatsValid = {};
+
+      function toggleValidCat(cat, catTr) {
+        openCatsValid[cat] = !openCatsValid[cat];
+        const chevron = catTr.querySelector('.vcat-chevron');
+        if (chevron) chevron.style.transform = openCatsValid[cat] ? 'rotate(180deg)' : '';
+        tbody.querySelectorAll('tr[data-vcat="' + CSS.escape(cat) + '"]').forEach(tr => {
+          tr.style.display = openCatsValid[cat] ? '' : 'none';
+        });
+      }
+
       ucats.forEach(cat => {
         const catItems = ucat.filter(i => i.category === cat);
         if (!catItems.length) return;
 
-        const catTr = el('tr', {cls:'valid-cat-row'});
+        // Contar alertas nesta categoria
+        const catLotesAll = catItems.flatMap(i => lotesByItem[_norm2(i.name)] || []);
+        const nExpCat   = catLotesAll.filter(l => l._status === 'expired').length;
+        const nAlertCat = catLotesAll.filter(l => l._status === 'alert').length;
+        const nLotesCat = catLotesAll.length;
+
+        const catTr = el('tr', {cls:'valid-cat-row', style:'cursor:pointer;user-select:none'});
         const catTd = el('td');
         catTd.setAttribute('colspan', '4');
-        catTd.textContent = cat;
+        catTd.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px';
+
+        const catLeft = el('span', {style:'display:flex;align-items:center;gap:8px'});
+        const chevron = el('span', {cls:'vcat-chevron', style:'font-size:10px;transition:transform .2s;display:inline-block'}, '▼');
+        catLeft.appendChild(chevron);
+        catLeft.appendChild(el('span', {}, cat));
+
+        // Badges de alerta inline no cabeçalho
+        const catRight = el('span', {style:'display:flex;align-items:center;gap:6px'});
+        if (nExpCat > 0) {
+          const b = el('span', {style:'font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:rgba(197,48,48,.18);color:#C53030'});
+          b.textContent = nExpCat + ' vencido' + (nExpCat > 1 ? 's' : '');
+          catRight.appendChild(b);
+        } else if (nAlertCat > 0) {
+          const b = el('span', {style:'font-size:10px;font-weight:700;padding:1px 7px;border-radius:10px;background:rgba(214,158,46,.18);color:#C07A00'});
+          b.textContent = nAlertCat + ' alerta' + (nAlertCat > 1 ? 's' : '');
+          catRight.appendChild(b);
+        }
+        const countBadge = el('span', {style:'font-size:10px;color:var(--text-3)'});
+        countBadge.textContent = catItems.length + ' itens' + (nLotesCat > 0 ? ' · ' + nLotesCat + ' lote' + (nLotesCat > 1 ? 's' : '') : '');
+        catRight.appendChild(countBadge);
+
+        catTd.appendChild(catLeft);
+        catTd.appendChild(catRight);
         catTr.appendChild(catTd);
+        catTr.addEventListener('click', () => toggleValidCat(cat, catTr));
         tbody.appendChild(catTr);
 
         catItems.forEach(item => {
@@ -8149,6 +8191,8 @@ function viewValidadeControl() {
             : itemLotes.some(l => l._status === 'alert') ? 'alert' : '';
 
           const tr = el('tr');
+          tr.setAttribute('data-vcat', cat);
+          tr.style.display = 'none'; // começa fechado
 
           // Nome
           const tdName = el('td');
