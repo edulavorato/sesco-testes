@@ -8080,118 +8080,125 @@ function viewValidadeControl() {
       const lotes  = Object.entries(val).map(([id, d]) => ({ _id: id, ...d }));
       const today2 = new Date(); today2.setHours(0,0,0,0);
 
-      if (!lotes.length) {
-        bodyEl.appendChild(el('div', {cls:'valid-empty'}, '\uD83D\uDCED Nenhum lote cadastrado para ' + activeValidUnit + '.'));
-        return;
-      }
-
-      // Calcular diffDays e status de cada lote
       lotes.forEach(l => {
         const dt = new Date(l.data_validade + 'T00:00:00');
         l._diffDays = Math.round((dt - today2) / 86400000);
         l._status   = l._diffDays <= 0 ? 'expired' : l._diffDays <= 7 ? 'alert' : 'ok';
       });
 
-      // Agrupar por categoria usando o catálogo da unidade (ordem correta)
-      const ucat = getUnitCatalog(activeValidUnit).catalog;
-      const ucats = getUnitCatalog(activeValidUnit).categories;
       const _norm2 = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-
-      // Mapa nome → categoria
-      const nameToCat = {};
-      ucat.forEach(i => { nameToCat[_norm2(i.name)] = i.category; });
-
-      // Agrupar lotes por categoria
-      const byCat = {};
-      ucats.forEach(c => { byCat[c] = []; });
-      const semCat = [];
+      const lotesByItem = {};
       lotes.forEach(l => {
-        const cat = nameToCat[_norm2(l.item_name)];
-        if (cat && byCat[cat]) byCat[cat].push(l);
-        else semCat.push(l);
+        const k = _norm2(l.item_name);
+        if (!lotesByItem[k]) lotesByItem[k] = [];
+        lotesByItem[k].push(l);
       });
-      if (semCat.length) byCat['Outros'] = semCat;
 
-      // Contar alertas por tipo para o resumo
+      const ucat  = getUnitCatalog(activeValidUnit).catalog;
+      const ucats = getUnitCatalog(activeValidUnit).categories;
+
+      // Resumo de alertas
       const nExp   = lotes.filter(l => l._status === 'expired').length;
       const nAlert = lotes.filter(l => l._status === 'alert').length;
-      const nOk    = lotes.filter(l => l._status === 'ok').length;
+      if (nExp > 0 || nAlert > 0) {
+        const resumo = el('div', {style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px'});
+        if (nExp > 0) {
+          const c = el('div', {style:'padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(197,48,48,.1);border:1.5px solid rgba(197,48,48,.3);color:#C53030'});
+          c.textContent = '\uD83D\uDD34 ' + nExp + ' vencido' + (nExp > 1 ? 's' : '');
+          resumo.appendChild(c);
+        }
+        if (nAlert > 0) {
+          const c = el('div', {style:'padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;background:rgba(214,158,46,.1);border:1.5px solid rgba(214,158,46,.3);color:#C07A00'});
+          c.textContent = '\uD83D\uDFE1 ' + nAlert + ' alerta' + (nAlert > 1 ? 's' : '');
+          resumo.appendChild(c);
+        }
+        bodyEl.appendChild(resumo);
+      }
 
-      // Resumo no topo
-      const resumo = el('div', {style:'display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px'});
-      [['\uD83D\uDD34 Expirados', nExp, '#C53030'],
-       ['\uD83D\uDFE1 Alerta (7d)', nAlert, '#C07A00'],
-       ['\uD83D\uDFE2 No prazo', nOk, '#276749']].forEach(([lbl, cnt, col]) => {
-        const chip = el('div', {style:'padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:var(--surface-2);border:1.5px solid var(--border);color:'+col});
-        chip.textContent = lbl + ': ' + cnt;
-        resumo.appendChild(chip);
-      });
-      bodyEl.appendChild(resumo);
-
-      // Tabela
+      // Tabela com TODOS os itens do catálogo
       const tableWrap = el('div', {cls:'table-wrap', style:'padding:0'});
       const table = el('table', {cls:'valid-table'});
 
       const thead = el('thead');
       const thrHead = el('tr');
-      ['Item','UN','Qtd','Validade','Dias',''].forEach((h,i) => {
-        const th = el('th', {cls: i >= 2 ? 'right' : ''}, h);
+      ['Item','UN','Lotes cadastrados','+'].forEach((h,i) => {
+        const th = el('th', {cls: i >= 2 ? 'right' : ''});
+        th.textContent = h;
         thrHead.appendChild(th);
       });
       thead.appendChild(thrHead);
       table.appendChild(thead);
 
       const tbody = el('tbody');
-      const allCats = [...ucats, ...(semCat.length ? ['Outros'] : [])];
 
-      allCats.forEach(cat => {
-        const catLotes = (byCat[cat] || []).slice()
-          .sort((a,b) => a.data_validade.localeCompare(b.data_validade));
-        if (!catLotes.length) return;
+      ucats.forEach(cat => {
+        const catItems = ucat.filter(i => i.category === cat);
+        if (!catItems.length) return;
 
-        // Cabeçalho de categoria
         const catTr = el('tr', {cls:'valid-cat-row'});
         const catTd = el('td');
-        catTd.setAttribute('colspan', '6');
-        catTd.textContent = cat + ' (' + catLotes.length + ' lote' + (catLotes.length > 1 ? 's' : '') + ')';
+        catTd.setAttribute('colspan', '4');
+        catTd.textContent = cat;
         catTr.appendChild(catTd);
         tbody.appendChild(catTr);
 
-        catLotes.forEach(l => {
+        catItems.forEach(item => {
+          const itemLotes = (lotesByItem[_norm2(item.name)] || [])
+            .slice().sort((a,b) => a.data_validade.localeCompare(b.data_validade));
+          const worstStatus = itemLotes.some(l => l._status === 'expired') ? 'expired'
+            : itemLotes.some(l => l._status === 'alert') ? 'alert' : '';
+
           const tr = el('tr');
+
           // Nome
-          tr.appendChild(el('td', {}, l.item_name));
+          const tdName = el('td');
+          const nameSpan = el('span', {
+            style: worstStatus === 'expired' ? 'color:#C53030;font-weight:500'
+                 : worstStatus === 'alert'   ? 'color:#C07A00;font-weight:500' : ''
+          }, item.name);
+          tdName.appendChild(nameSpan);
+          tr.appendChild(tdName);
+
           // Unidade
-          tr.appendChild(el('td', {style:'color:var(--text-3);font-size:12px'}, l.unidade_medida));
-          // Quantidade
-          const tdQty = el('td', {cls:'right', style:'font-weight:600'}, String(l.quantidade));
-          tr.appendChild(tdQty);
-          // Validade
-          const dateStr = new Date(l.data_validade + 'T00:00:00').toLocaleDateString('pt-BR');
-          const tdDate  = el('td', {cls:'right valid-date-text ' + l._status}, dateStr);
-          tr.appendChild(tdDate);
-          // Dias
-          const tdDays = el('td', {cls:'right'});
-          const daysWrap = el('div', {cls:'valid-days-cell'});
-          const dot = el('span', {cls:'valid-dot ' + l._status});
-          const daysLbl = el('span', {style:'font-size:11px;color:var(--text-3)'});
-          if (l._diffDays <= 0)       daysLbl.textContent = 'Vencido';
-          else if (l._diffDays === 1) daysLbl.textContent = '1 dia';
-          else                         daysLbl.textContent = l._diffDays + ' dias';
-          daysWrap.append(daysLbl, dot);
-          tdDays.appendChild(daysWrap);
-          tr.appendChild(tdDays);
-          // Botão consumido
-          const tdBtn = el('td', {style:'text-align:right'});
-          const consumeBtn = el('button', {cls:'valid-lote-consume', title:'Marcar como consumido/aberto'}, '\u2714');
-          consumeBtn.addEventListener('click', () => {
-            if (!confirm('Marcar "' + l.item_name + '" como consumido/aberto? O lote será removido.')) return;
-            db.ref('dados/validity_control/' + slug3 + '/' + l._id).remove()
-              .then(() => { toast('\u2705 Lote removido'); renderValidBody(); })
-              .catch(e => toast('Erro: ' + e.message));
+          tr.appendChild(el('td', {style:'color:var(--text-3);font-size:12px'}, item.unit));
+
+          // Lotes inline
+          const tdLotes = el('td', {cls:'right'});
+          if (!itemLotes.length) {
+            tdLotes.appendChild(el('span', {style:'color:var(--text-3);font-size:12px'}, '\u2014'));
+          } else {
+            const lotesWrap = el('div', {style:'display:flex;flex-direction:column;gap:4px;align-items:flex-end'});
+            itemLotes.forEach(l => {
+              const loteRow = el('div', {style:'display:flex;align-items:center;gap:6px'});
+              const dot = el('span', {cls:'valid-dot ' + l._status});
+              const dateStr = new Date(l.data_validade + 'T00:00:00').toLocaleDateString('pt-BR');
+              const daysStr = l._diffDays <= 0 ? 'Vencido' : l._diffDays === 1 ? '1 dia' : l._diffDays + 'd';
+              const info = el('span', {cls:'valid-date-text ' + l._status, style:'font-size:12px;white-space:nowrap'});
+              info.textContent = String(l.quantidade) + ' ' + l.unidade_medida + ' \u00B7 ' + dateStr + ' (' + daysStr + ')';
+              const cBtn = el('button', {cls:'valid-lote-consume', style:'width:22px;height:22px;font-size:11px', title:'Marcar consumido'}, '\u2714');
+              cBtn.addEventListener('click', e => {
+                e.stopPropagation();
+                if (!confirm('Remover lote de "' + item.name + '"?')) return;
+                db.ref('dados/validity_control/' + slug3 + '/' + l._id).remove()
+                  .then(() => { toast('\u2705 Lote removido'); renderValidBody(); })
+                  .catch(err => toast('Erro: ' + err.message));
+              });
+              loteRow.append(dot, info, cBtn);
+              lotesWrap.appendChild(loteRow);
+            });
+            tdLotes.appendChild(lotesWrap);
+          }
+          tr.appendChild(tdLotes);
+
+          // Botão +
+          const tdAdd = el('td', {style:'text-align:right;width:32px'});
+          const addBtn = el('button', {cls:'valid-lote-consume', style:'font-size:16px;font-weight:700', title:'Adicionar lote'}, '+');
+          addBtn.addEventListener('click', e => {
+            e.stopPropagation();
+            openAddLoteModal(item, slug3, renderValidBody);
           });
-          tdBtn.appendChild(consumeBtn);
-          tr.appendChild(tdBtn);
+          tdAdd.appendChild(addBtn);
+          tr.appendChild(tdAdd);
           tbody.appendChild(tr);
         });
       });
@@ -8206,6 +8213,56 @@ function viewValidadeControl() {
     });
   }
 
+  function openAddLoteModal(item, slug3, onSave) {
+    document.querySelectorAll('.modal-overlay').forEach(m => m.remove());
+    const today = new Date().toISOString().slice(0,10);
+    const overlay = el('div', {cls:'modal-overlay'});
+    const box = el('div', {cls:'modal-box', style:'max-width:360px'});
+    const hdr = el('div', {cls:'modal-header'});
+    hdr.appendChild(el('div', {cls:'modal-title'}, '+ Lote: ' + item.name));
+    const closeX = el('button', {cls:'modal-close'}, '\u00D7');
+    closeX.addEventListener('click', () => overlay.remove());
+    hdr.appendChild(closeX);
+    box.appendChild(hdr);
+    const body2 = el('div', {cls:'modal-body', style:'padding:16px 18px;display:flex;flex-direction:column;gap:12px'});
+    const qtyWrap = el('div');
+    qtyWrap.appendChild(el('div', {style:'font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px'}, 'Quantidade (' + item.unit + ')'));
+    const qtyInp = el('input', {type:'number', cls:'confirm-name-input', placeholder:'0', min:'0.01', step:'0.01', style:'width:100%'});
+    qtyWrap.appendChild(qtyInp);
+    body2.appendChild(qtyWrap);
+    const dateWrap = el('div');
+    dateWrap.appendChild(el('div', {style:'font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:4px'}, 'Data de Validade'));
+    const dateInp = el('input', {type:'date', cls:'confirm-name-input', style:'width:100%'});
+    dateInp.min = today;
+    dateWrap.appendChild(dateInp);
+    body2.appendChild(dateWrap);
+    box.appendChild(body2);
+    const errEl = el('div', {style:'padding:0 18px 8px;font-size:12px;color:var(--danger,#C53030);display:none'});
+    box.appendChild(errEl);
+    const ftr = el('div', {cls:'modal-footer'});
+    const cancelBtn2 = el('button', {cls:'btn btn-outline btn-sm'}, 'Cancelar');
+    cancelBtn2.addEventListener('click', () => overlay.remove());
+    const saveBtn2 = el('button', {cls:'btn btn-sm', style:'background:var(--accent,#2a6049);color:#fff'}, 'Salvar');
+    saveBtn2.addEventListener('click', () => {
+      errEl.style.display = 'none';
+      const qty = parseFloat(qtyInp.value);
+      if (!qty || qty <= 0) { errEl.textContent = 'Quantidade inválida.'; errEl.style.display = 'block'; return; }
+      if (!dateInp.value) { errEl.textContent = 'Informe a data de validade.'; errEl.style.display = 'block'; return; }
+      const lote = { item_id: item.id, item_name: item.name, quantidade: qty,
+        unidade_medida: item.unit, data_validade: dateInp.value, data_cadastro: today, status_alerta: 'pendente' };
+      db.ref('dados/validity_control/' + slug3 + '/' + Date.now()).set(lote)
+        .then(() => { overlay.remove(); toast('\u2705 Lote registrado!'); onSave(); })
+        .catch(e => { errEl.textContent = 'Erro: ' + e.message; errEl.style.display = 'block'; });
+    });
+    qtyInp.addEventListener('keydown', e => { if (e.key === 'Enter') dateInp.focus(); });
+    dateInp.addEventListener('keydown', e => { if (e.key === 'Enter') saveBtn2.click(); });
+    ftr.appendChild(cancelBtn2); ftr.appendChild(saveBtn2);
+    box.appendChild(ftr);
+    overlay.appendChild(box);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+    setTimeout(() => qtyInp.focus(), 100);
+  }
   renderValidBody();
   return frag;
 }
