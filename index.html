@@ -9061,31 +9061,45 @@ function viewQuadroProducao() {
           cobSel.appendChild(opt);
         });
         cobSel.addEventListener('change', () => {
-          qpSet(`cob_${ft.id}`, parseInt(cobSel.value));
-          // Fechar todas as áreas ao mudar cobertura
-          Object.keys(openAreas).forEach(k => delete openAreas[k]);
-          renderQPBody(dayIdx);
+          const newCob = parseInt(cobSel.value);
+          qpSet(`cob_${ft.id}`, newCob);
+          // Recalcular sugestão sem re-renderizar o DOM inteiro
+          const { lotes: newLotes } = calcLotesSugeridos(ft, newCob);
+          const thisTr = cobSel.closest('tr');
+          if (thisTr) {
+            const sugEl = thisTr.querySelector('[data-role="sug"]');
+            if (sugEl) {
+              sugEl.textContent = newLotes > 0 ? '↑ ' + newLotes + ' lotes' : '—';
+              sugEl.className = 'qp-sugestao' + (newLotes === 0 ? ' zero' : '');
+              sugEl.onclick = newLotes > 0 ? () => {
+                qpSet('qty_' + dayIdx + '_' + ft.id, newLotes);
+                const qi = thisTr.querySelector('.qp-qty-input');
+                if (qi) qi.value = String(newLotes);
+              } : null;
+            }
+          }
         });
         tdCob.appendChild(cobSel);
         if (dayCode) {
-          const infoSpan = el('div', {style:'font-size:10px;color:var(--text-3);margin-top:3px'});
-          infoSpan.textContent = `A enviar: ${aEnviarTotal} · CPD: ${estCPD}`;
-          tdCob.appendChild(infoSpan);
+          const cobInfo = el('div', {style:'font-size:10px;color:var(--text-3);margin-top:3px'});
+          cobInfo.textContent = 'A enviar: ' + aEnviarTotal + ' · CPD: ' + estCPD;
+          tdCob.appendChild(cobInfo);
         }
         tr.appendChild(tdCob);
 
         // Sugestão automática
         const tdSug = el('td', {style:'text-align:center'});
         if (dayCode) {
-          const sugSpan = el('span', {
-            cls: 'qp-sugestao' + (lotes === 0 ? ' zero' : ''),
-            title: lotes > 0 ? 'Clique para usar esta sugestão' : 'Sem necessidade de produção'
-          });
-          sugSpan.textContent = lotes > 0 ? `↑ ${lotes} lotes` : '—';
+          const sugSpan = document.createElement('span');
+          sugSpan.className = 'qp-sugestao' + (lotes === 0 ? ' zero' : '');
+          sugSpan.setAttribute('data-role', 'sug');
+          sugSpan.title = lotes > 0 ? 'Clique para usar esta sugestão' : 'Sem necessidade de produção';
+          sugSpan.textContent = lotes > 0 ? '↑ ' + lotes + ' lotes' : '—';
           if (lotes > 0) {
             sugSpan.addEventListener('click', () => {
-              qpSet(`qty_${dayIdx}_${ft.id}`, lotes);
-              renderQPBody(dayIdx);
+              qpSet('qty_' + dayIdx + '_' + ft.id, lotes);
+              const qi = tr.querySelector('.qp-qty-input');
+              if (qi) qi.value = String(lotes);
             });
           }
           tdSug.appendChild(sugSpan);
