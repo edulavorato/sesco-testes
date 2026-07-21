@@ -8804,18 +8804,18 @@ function viewQuadroProducao() {
   frag.appendChild(tabsEl);
   frag.appendChild(bodyEl);
 
-  QP_DIAS.forEach((dia, idx) => {
-    const tab = el('button', {
-      cls:'qp-day-tab' + (idx === activeDay ? ' active' : '') + (idx === todayIdx ? ' today' : ''),
-    });
+  QP_DIAS.forEach((dia, dIdx) => {
+    const tab = document.createElement('button');
+    tab.className = 'qp-day-tab' + (dIdx === activeDay ? ' active' : '') + (dIdx === todayIdx ? ' today' : '');
     tab.textContent = dia;
     tab.addEventListener('click', () => {
-      activeDay = idx;
-      qpSet('activeDay', idx);
-      tabsEl.querySelectorAll('.qp-day-tab').forEach((b,i) => {
-        b.classList.toggle('active', i === idx);
+      activeDay = dIdx;
+      qpSet('activeDay', dIdx);
+      tabsEl.querySelectorAll('.qp-day-tab').forEach((b, i) => {
+        b.classList.toggle('active', i === dIdx);
+        b.classList.toggle('today', i === todayIdx);
       });
-      renderQPBody(idx);
+      renderQPBody(dIdx);
     });
     tabsEl.appendChild(tab);
   });
@@ -8877,15 +8877,11 @@ function viewQuadroProducao() {
     const dayCode = qpDayCode(dayIdx);
 
     if (!dayCode) {
-      // Dias sem entrega (Sáb, Dom, Ter, Qui) — mostrar todos os itens com lotes manuais
-      const _ew = el('div', {cls:'qp-empty'});
-      const _ei = el('div', {cls:'qp-empty-icon'}, '📋');
-      const _em = el('div', {}, 'Dia sem entrega às unidades.');
-      const _en = el('span', {style:'font-size:11px;color:var(--text-3)'},
-        'Defina quantidades manualmente se houver produção avulsa.');
-      _em.insertBefore(document.createElement('br'), null);
-      _em.appendChild(_en);
-      _ew.appendChild(_ei); _ew.appendChild(_em);
+      const _ew = el('div', {style:'padding:10px 14px;background:var(--surface-2);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:14px;display:flex;gap:10px;align-items:center'});
+      const _etxt = el('div');
+      _etxt.appendChild(el('div', {style:'font-size:13px;font-weight:600;color:var(--text-2)'}, 'Dia sem entrega às unidades'));
+      _etxt.appendChild(el('div', {style:'font-size:11px;color:var(--text-3);margin-top:2px'}, 'Sem cálculo automático — defina as quantidades manualmente se houver produção avulsa.'));
+      _ew.appendChild(_etxt);
       bodyEl.appendChild(_ew);
     }
 
@@ -8907,9 +8903,8 @@ function viewQuadroProducao() {
     });
 
     // Renderizar por área
-    // Estado de abertura — todas fechadas ao abrir
-    if (!window._qpOpenAreas) window._qpOpenAreas = {};
-    const openAreas = window._qpOpenAreas;
+    // Estado de abertura local — sempre fechado ao trocar de dia
+    const openAreas = {};
 
     QP_AREAS.forEach(area => {
       const items = ftPorArea[area] || [];
