@@ -8878,9 +8878,15 @@ function viewQuadroProducao() {
 
     if (!dayCode) {
       // Dias sem entrega (Sáb, Dom, Ter, Qui) — mostrar todos os itens com lotes manuais
-      bodyEl.appendChild(el('div', {cls:'qp-empty'},
-        '<div class="qp-empty-icon">📋</div><div>Dia sem entrega às unidades.<br>' +
-        '<span style="font-size:11px;color:var(--text-3)">Defina quantidades manualmente se houver produção avulsa.</span></div>'));
+      const _ew = el('div', {cls:'qp-empty'});
+      const _ei = el('div', {cls:'qp-empty-icon'}, '📋');
+      const _em = el('div', {}, 'Dia sem entrega às unidades.');
+      const _en = el('span', {style:'font-size:11px;color:var(--text-3)'},
+        'Defina quantidades manualmente se houver produção avulsa.');
+      _em.insertBefore(document.createElement('br'), null);
+      _em.appendChild(_en);
+      _ew.appendChild(_ei); _ew.appendChild(_em);
+      bodyEl.appendChild(_ew);
     }
 
     // Agrupar fichas por área e calcular necessidade
@@ -8891,9 +8897,9 @@ function viewQuadroProducao() {
     FT_LIBRARY.forEach(ft => {
       const cobertura = parseInt(qpGet(`cob_${ft.id}`, ft.coberturaDefault)) || 1;
       const { lotes, aEnviarTotal, estCPD } = calcLotesSugeridos(ft, cobertura);
-      const lotesManuais = qpGet(`qty_${dayIdx}_${ft.id}`, null);
-      // Usar manual se definido, senão sugestão automática
-      const lotesEfetivos = lotesManuais !== null ? lotesManuais : lotes;
+      // Quantidade SEMPRE zero — responsavel decide aceitar a sugestao
+      const lotesManuais = qpGet(`qty_${dayIdx}_${ft.id}`, 0);
+      const lotesEfetivos = lotesManuais;
       const liberado = qpGet(`lib_${dayIdx}_${ft.id}`, false);
       ftPorArea[ft.area].push({ ft, lotes, aEnviarTotal, estCPD, cobertura, lotesEfetivos, liberado });
       if (lotesEfetivos > 0) totalLotes++;
@@ -8901,38 +8907,45 @@ function viewQuadroProducao() {
     });
 
     // Renderizar por área
+    // Estado de abertura — todas fechadas ao abrir
+    if (!window._qpOpenAreas) window._qpOpenAreas = {};
+    const openAreas = window._qpOpenAreas;
+
     QP_AREAS.forEach(area => {
       const items = ftPorArea[area] || [];
-      // Mostrar TODOS os itens da área (produção manual em dias sem entrega, ou itens avulsos)
-      // Em dias com entrega: destacar itens com necessidade > 0
       const comNecessidade = items.filter(i => i.lotes > 0);
       const liberadosArea  = items.filter(i => i.liberado && i.lotesEfetivos > 0).length;
       const totalArea      = items.filter(i => i.lotesEfetivos > 0).length;
 
       const areaWrap = el('div', {style:'margin-bottom:20px'});
 
-      // Cabeçalho da área
-      const areaHdr = el('div', {cls:'qp-area-hdr'});
+      const areaHdr = el('div', {cls:'qp-area-hdr', style:'cursor:pointer;user-select:none'});
       const areaLeft = el('div', {cls:'qp-area-name'});
-      areaLeft.appendChild(el('span', {style:'font-size:16px'}, 
-        area === 'Madalena' ? '👩‍🍳' : area === 'Larissa' ? '🍫' : area === 'Maria Laura' ? '🫙' : '🍕'));
-      areaLeft.appendChild(el('span', {}, area));
-      if (dayCode && comNecessidade.length > 0) {
+      const chevron = document.createElement('span');
+      chevron.className = 'qp-chevron';
+      chevron.style.cssText = 'font-size:10px;transition:transform .2s;display:inline-block;margin-right:6px';
+      chevron.textContent = '▼';
+      areaLeft.appendChild(chevron);
+      const _areaLabel = document.createElement('span');
+      _areaLabel.textContent = area;
+      areaLeft.appendChild(_areaLabel);
+      if (dayCode && comNecessidade.length > 0)
         areaLeft.appendChild(el('span', {cls:'qp-area-badge'}, comNecessidade.length + ' a produzir'));
-      }
+      else if (dayCode)
+        areaLeft.appendChild(el('span', {cls:'qp-area-badge',
+          style:'background:rgba(42,145,72,.08);color:var(--text-3)'}, 'tudo OK'));
       areaHdr.appendChild(areaLeft);
 
       const areaRight = el('div', {style:'display:flex;gap:8px;align-items:center'});
       if (totalArea > 0) {
-        const info = el('span', {cls:'qp-footer-info'}, liberadosArea + '/' + totalArea + ' liberados');
-        areaRight.appendChild(info);
+        areaRight.appendChild(el('span', {cls:'qp-footer-info'},
+          liberadosArea + '/' + totalArea + ' liberados'));
         if (liberadosArea < totalArea) {
           const libAllBtn = el('button', {cls:'qp-liberar-all'}, '✓ Liberar tudo');
-          libAllBtn.addEventListener('click', () => {
+          libAllBtn.addEventListener('click', e => {
+            e.stopPropagation();
             items.forEach(i => {
-              if (i.lotesEfetivos > 0 && !i.liberado) {
-                qpSet(`lib_${dayIdx}_${i.ft.id}`, true);
-              }
+              if (i.lotesEfetivos > 0 && !i.liberado) qpSet('lib_' + dayIdx + '_' + i.ft.id, true);
             });
             qpSalvarHistorico(dayIdx);
             renderQPBody(dayIdx);
@@ -8961,7 +8974,6 @@ function viewQuadroProducao() {
 
       // Área Masseiro — layout especial
       if (area === 'Masseiro') {
-        areaWrap.appendChild(areaHdr);
         const massGrid = el('div', {cls:'qp-masseiro-grid'});
 
         // Card Previsão
@@ -9012,11 +9024,22 @@ function viewQuadroProducao() {
           cardProd.appendChild(row);
         });
         massGrid.appendChild(cardProd);
+        massGrid.style.display = 'none';
         areaWrap.appendChild(massGrid);
 
         const massFooter = el('div', {cls:'qp-section-footer'});
+        massFooter.style.display = 'none';
         massFooter.appendChild(el('span', {cls:'qp-footer-info'}, 'Ficha: 10kg farinha + 40g fermento por lote de Biga · 10kg farinha por lote de Massa'));
         areaWrap.appendChild(massFooter);
+
+        areaHdr.addEventListener('click', () => {
+          openAreas[area] = !openAreas[area];
+          const chev = areaHdr.querySelector('.qp-chevron');
+          if (chev) chev.style.transform = openAreas[area] ? 'rotate(180deg)' : '';
+          massGrid.style.display   = openAreas[area] ? '' : 'none';
+          massFooter.style.display = openAreas[area] ? '' : 'none';
+        });
+
         bodyEl.appendChild(areaWrap);
         return;
       }
@@ -9161,14 +9184,24 @@ function viewQuadroProducao() {
 
       table.appendChild(tbody);
       tableWrap.appendChild(table);
-      areaWrap.appendChild(areaHdr);
+      tableWrap.style.display = 'none';
       areaWrap.appendChild(tableWrap);
 
-      // Footer da área
       const footer = el('div', {cls:'qp-section-footer'});
+      footer.style.display = 'none';
       footer.appendChild(el('span', {cls:'qp-footer-info'},
-        `${items.filter(i => i.lotes > 0).length} com necessidade · ${liberadosArea}/${totalArea} liberados`));
+        items.filter(i => i.lotes > 0).length + ' com necessidade · ' + liberadosArea + '/' + totalArea + ' liberados'));
       areaWrap.appendChild(footer);
+
+      // Toggle ao clicar no header
+      areaHdr.addEventListener('click', () => {
+        openAreas[area] = !openAreas[area];
+        const chev = areaHdr.querySelector('.qp-chevron');
+        if (chev) chev.style.transform = openAreas[area] ? 'rotate(180deg)' : '';
+        tableWrap.style.display = openAreas[area] ? '' : 'none';
+        footer.style.display    = openAreas[area] ? '' : 'none';
+      });
+
       bodyEl.appendChild(areaWrap);
     });
   }
