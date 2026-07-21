@@ -8810,6 +8810,8 @@ function viewQuadroProducao() {
         b.classList.toggle('active', i === dIdx);
         b.classList.toggle('today', i === todayIdx);
       });
+      // Fechar todas as áreas ao trocar de dia
+      Object.keys(openAreas).forEach(k => delete openAreas[k]);
       renderQPBody(dIdx);
     });
     tabsEl.appendChild(tab);
@@ -8866,6 +8868,9 @@ function viewQuadroProducao() {
   }
 
   // ── Render do body ─────────────────────────────────────────────────────────
+  // Estado de abertura por área — persiste entre re-renders do mesmo dia
+  const openAreas = {};
+
   function renderQPBody(dayIdx) {
     bodyEl.innerHTML = '';
 
@@ -8898,9 +8903,6 @@ function viewQuadroProducao() {
     });
 
     // Renderizar por área
-    // Estado de abertura local — sempre fechado ao trocar de dia
-    const openAreas = {};
-
     QP_AREAS.forEach(area => {
       const items = ftPorArea[area] || [];
       const comNecessidade = items.filter(i => i.lotes > 0);
