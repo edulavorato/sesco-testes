@@ -8980,10 +8980,15 @@ function viewQuadroProducao() {
           inp.value = String(lotesEfetivos);
           inp.placeholder = String(lotes);
           inp.title = lotes > 0 ? `Sugestão: ${lotes} lotes` : 'Sem necessidade calculada';
+          inp.setAttribute('data-ft-id', ft.id);
           inp.addEventListener('change', () => {
             const v = Math.max(0, parseInt(inp.value) || 0);
-            qpSet(`qty_${dayIdx}_${ft.id}`, v);
-            renderQPBody(dayIdx);
+            qpSet('qty_' + dayIdx + '_' + ft.id, v);
+            // Atualizar cálculo de farinha/fermento inline (sem re-render)
+            if (ft.id === 'massa_pizza') {
+              const cd = cardPrev.querySelector('.qp-masseiro-calc');
+              if (cd) cd.innerHTML = 'Farinha total: <b>' + (v * 10) + 'kg</b> · Fermento: <b>' + (v * 40) + 'g</b>';
+            }
           });
           row.appendChild(inp);
           cardPrev.appendChild(row);
@@ -9010,8 +9015,9 @@ function viewQuadroProducao() {
           inp.value = String(qpGet(`prod_${dayIdx}_${tipo}`, ''));
           inp.placeholder = '0';
           inp.addEventListener('change', () => {
-            qpSet(`prod_${dayIdx}_${tipo}`, parseInt(inp.value) || 0);
+            qpSet('prod_' + dayIdx + '_' + tipo, parseInt(inp.value) || 0);
             qpSalvarHistorico(dayIdx);
+            // Sem re-render — só salva
           });
           row.appendChild(inp);
           cardProd.appendChild(row);
@@ -9025,7 +9031,8 @@ function viewQuadroProducao() {
         massFooter.appendChild(el('span', {cls:'qp-footer-info'}, 'Ficha: 10kg farinha + 40g fermento por lote de Biga · 10kg farinha por lote de Massa'));
         areaWrap.appendChild(massFooter);
 
-        areaHdr.addEventListener('click', () => {
+        areaHdr.addEventListener('click', e => {
+          if (e.target.closest('button,input,select,textarea')) return;
           openAreas[area] = !openAreas[area];
           const chev = areaHdr.querySelector('.qp-chevron');
           if (chev) chev.style.transform = openAreas[area] ? 'rotate(180deg)' : '';
@@ -9247,7 +9254,8 @@ function viewQuadroProducao() {
       areaWrap.appendChild(footer);
 
       // Toggle ao clicar no header
-      areaHdr.addEventListener('click', () => {
+      areaHdr.addEventListener('click', e => {
+        if (e.target.closest('button,input,select,textarea')) return;
         openAreas[area] = !openAreas[area];
         const chev = areaHdr.querySelector('.qp-chevron');
         if (chev) chev.style.transform = openAreas[area] ? 'rotate(180deg)' : '';
