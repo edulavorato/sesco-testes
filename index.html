@@ -9115,21 +9115,65 @@ function viewQuadroProducao() {
         const qtyInp = el('input', {cls:'qp-qty-input', type:'number', min:'0'});
         qtyInp.value = String(lotesEfetivos);
         const plusBtn = el('button', {cls:'qp-qty-btn'}, '+');
+        // Atualizar insumos inline sem re-renderizar
+        function _updateInsumos(v) {
+          qpSet('qty_' + dayIdx + '_' + ft.id, v);
+          // Atualizar insDiv na mesma linha
+          const thisTr2 = qtyInp.closest('tr');
+          if (!thisTr2) return;
+          const insDiv2 = thisTr2.querySelector('.qp-insumos');
+          if (insDiv2) {
+            insDiv2.innerHTML = '';
+            if (v > 0) {
+              ft.mp.forEach(i => {
+                const line = document.createElement('div');
+                line.innerHTML = i.n + ': <b>' + +(i.q * v).toFixed(2) + ' ' + i.u + '</b>';
+                insDiv2.appendChild(line);
+              });
+              if (ft.emb && ft.emb.length) {
+                ft.emb.forEach(i => {
+                  const line = document.createElement('div');
+                  line.className = 'qp-insumos emb';
+                  line.innerHTML = '[emb] ' + i.n + ': <b>' + +(i.q * v).toFixed(2) + ' ' + i.u + '</b>';
+                  insDiv2.appendChild(line);
+                });
+              }
+            } else {
+              const dash = document.createElement('span');
+              dash.style.cssText = 'color:var(--text-3);font-size:11px';
+              dash.textContent = '—';
+              insDiv2.appendChild(dash);
+            }
+          }
+          // Atualizar botão liberar
+          const libBtn2 = thisTr2.querySelector('.qp-status-btn');
+          if (libBtn2 && !libBtn2.classList.contains('liberado')) {
+            libBtn2.classList.toggle('disabled', v === 0);
+          }
+          // Se liberado e zerou, des-liberar
+          if (v === 0 && qpGet('lib_' + dayIdx + '_' + ft.id, false)) {
+            qpSet('lib_' + dayIdx + '_' + ft.id, false);
+            if (libBtn2) {
+              libBtn2.classList.remove('liberado');
+              libBtn2.textContent = 'Liberar';
+            }
+          }
+        }
+
         minusBtn.addEventListener('click', () => {
           const v = Math.max(0, (parseInt(qtyInp.value) || 0) - 1);
-          qtyInp.value = v; qpSet(`qty_${dayIdx}_${ft.id}`, v);
-          if (liberado && v === 0) qpSet(`lib_${dayIdx}_${ft.id}`, false);
-          renderQPBody(dayIdx);
+          qtyInp.value = v;
+          _updateInsumos(v);
         });
         plusBtn.addEventListener('click', () => {
           const v = (parseInt(qtyInp.value) || 0) + 1;
-          qtyInp.value = v; qpSet(`qty_${dayIdx}_${ft.id}`, v);
-          renderQPBody(dayIdx);
+          qtyInp.value = v;
+          _updateInsumos(v);
         });
         qtyInp.addEventListener('change', () => {
           const v = Math.max(0, parseInt(qtyInp.value) || 0);
-          qtyInp.value = v; qpSet(`qty_${dayIdx}_${ft.id}`, v);
-          renderQPBody(dayIdx);
+          qtyInp.value = v;
+          _updateInsumos(v);
         });
         qtyCell.append(minusBtn, qtyInp, plusBtn);
         tdQty.appendChild(qtyCell);
