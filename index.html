@@ -4958,7 +4958,7 @@ const FT_LIBRARY = [
     mp:[{n:'Tomate seco drenado balde 2L',q:1.4,u:'kg'}],
     emb:[{n:'Vácuo 20/30',q:2,u:'un'}] },
 
-  { id:'pure_abobora',      area:'Madalena', cpdId:'pp16', nome:'Purê de Abóbora 500g',
+  { id:'pure_abobora',      area:'Larissa', cpdId:'pp16', nome:'Purê de Abóbora 500g',
     rendimento:'8 abóboras → 30 porções 500g', rendFichas:30, coberturaDefault:1,
     mp:[{n:'Abóbora',q:8,u:'un (2-2,5kg)'}],
     emb:[{n:'Pote plástico 500g',q:30,u:'un'}] },
@@ -5042,11 +5042,6 @@ const FT_LIBRARY = [
         {n:'Sal',q:5,u:'g'},{n:'Pimentas malaguetas',q:4,u:'un'},
         {n:'Azeite de oliva',q:1.25,u:'litros'}],
     emb:[] },
-
-  { id:'pure_abobora_ml',   area:'Maria Laura', cpdId:'pp16', nome:'Purê de Abóbora 500g',
-    rendimento:'8 abóboras → 30 porções 500g', rendFichas:30, coberturaDefault:1,
-    mp:[{n:'Abóbora',q:8,u:'un'}],
-    emb:[{n:'Pote plástico 500g',q:30,u:'un'}] },
 
   // ── MASSEIRO ───────────────────────────────────────────────────────────────
   { id:'massa_pizza',       area:'Masseiro', cpdId:'pp01', nome:'Massa de Pizza',
@@ -9065,6 +9060,8 @@ function viewQuadroProducao() {
         });
         cobSel.addEventListener('change', () => {
           qpSet(`cob_${ft.id}`, parseInt(cobSel.value));
+          // Fechar todas as áreas ao mudar cobertura
+          Object.keys(openAreas).forEach(k => delete openAreas[k]);
           renderQPBody(dayIdx);
         });
         tdCob.appendChild(cobSel);
