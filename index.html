@@ -4540,6 +4540,25 @@ function nextEnviarDay() {
   return 'SEG';
 }
 
+// Mesma lógica de nextEnviarDay(), mas retorna a data real (não só o código
+// SEG/QUA/SEX) — necessário para calcular a janela de validade da contagem.
+function nextEnviarDate() {
+  const now = new Date();
+  const dow = now.getDay();
+  const dmap = {1:'SEG', 3:'QUA', 5:'SEX'};
+  for (let d = 0; d <= 6; d++) {
+    const dd = (dow + d) % 7;
+    if (dmap[dd]) {
+      const dt = new Date(now);
+      dt.setDate(now.getDate() + d);
+      return dt;
+    }
+  }
+  const dt = new Date(now);
+  dt.setDate(now.getDate() + 7);
+  return dt;
+}
+
 // Aliases para compatibilidade
 const UNIT_SEED_CATALOG = ASA_SUL_CATALOG;
 const UNIT_CATEGORIES   = ASA_SUL_CATEGORIES;
@@ -5562,19 +5581,30 @@ function _operationalDateStr(ts) {
   return d.toISOString().slice(0, 10);
 }
 
-// Verifica se a última confirmação de uma categoria está desatualizada
-// (não é de hoje). Retorna null se está em dia (confirmada hoje) ou nunca
-// precisou ser confirmada; retorna {days, never} se estiver velha.
-// days = quantos dias operacionais se passaram desde a última confirmação.
+// Verifica se a última confirmação de uma categoria está fora da janela
+// válida para o envio em cálculo. A janela vai das 18h do dia anterior ao
+// envio até o horário ideal de envio (14h do dia do envio) — ou seja, uma
+// contagem feita depois das 3h da manhã (fora da janela "clássica") ainda
+// conta como válida se tiver sido feita antes das 14h do dia do envio.
+// Retorna null se a confirmação está dentro dessa janela (ou nunca precisou
+// existir); retorna {days, never} se estiver mais velha que isso.
+// days = dias corridos desde a última confirmação (para exibir na mensagem).
 // never = true se a categoria nunca foi confirmada nenhuma vez.
 function getCategoryStaleness(unitName, cat) {
   const slug = unitSlug(unitName);
   const conf = catConfirmations[slug] && catConfirmations[slug][cat];
   if (!conf) return { days: null, never: true };
+
+  const shipDate = nextEnviarDate();
+  const windowStart = new Date(shipDate);
+  windowStart.setDate(windowStart.getDate() - 1);
+  windowStart.setHours(18, 0, 0, 0);
+
+  if (conf.ts >= windowStart.getTime()) return null; // dentro da janela válida do envio
+
   const todayStr = _operationalDateStr(Date.now());
   const confStr  = _operationalDateStr(conf.ts);
-  if (todayStr === confStr) return null; // confirmada hoje — em dia
-  const days = Math.round((new Date(todayStr) - new Date(confStr)) / 86400000);
+  const days = Math.max(1, Math.round((new Date(todayStr) - new Date(confStr)) / 86400000));
   return { days, never: false };
 }
 
