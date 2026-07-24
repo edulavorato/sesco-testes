@@ -1711,9 +1711,11 @@ auth.onAuthStateChanged(user => {
           .then(() => db.ref('dados/pizza_catalog_ver').set(CATALOG_VER))
           .catch(e => console.error('[Firebase] Erro catálogo inicial:', e));
         catalog.length = 0; catToSend.forEach(i => catalog.push(i));
+        if (typeof _ensureItemKeys === 'function') _ensureItemKeys(catalog);
       }
     } else {
       catalog.length = 0; fbCatalog.forEach(i => catalog.push(i));
+      if (typeof _ensureItemKeys === 'function') _ensureItemKeys(catalog);
       saveLocal('pizza_catalog', catalog);
       console.log('[Firebase] Catálogo CPD carregado:', fbCatalog.length, 'itens');
       _gateStep('catalog', 'Catálogo carregado…');
@@ -1735,6 +1737,7 @@ auth.onAuthStateChanged(user => {
       // Se é o catálogo da unidade logada, atualizar unitCatalog global
       // Guardar catálogo recebido em cache por slug (independente de sessão)
       if (val && Array.isArray(val) && val.length > 0) {
+        if (typeof _ensureItemKeys === 'function') _ensureItemKeys(val);
         if (!window._unitCatalogCache) window._unitCatalogCache = {};
         window._unitCatalogCache[slug] = val;
         try { localStorage.setItem('pizza_unit_catalog_' + slug, JSON.stringify(val)); } catch(e) {}
@@ -3484,13 +3487,27 @@ const DELIVERY_CATALOG = [
   {id:'ul28',name:'Poliflor',key:'poliflor',category:'Limpeza',unit:'Un'},
 ];
 
+// Migração em tempo real: dados de catálogo já salvos no Firebase/localStorage
+// foram gravados ANTES do campo `key` existir. Sem isso, item.key fica
+// undefined pra quem já tem dado real salvo, e todo o cálculo de A Enviar
+// (que agora casa por key, não por nome) para de achar qualquer item —
+// era exatamente o bug de "Envios do Dia sempre vazio" relatado.
+function _ensureItemKeys(arr) {
+  if (!Array.isArray(arr)) return arr;
+  const _n = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+  arr.forEach(item => {
+    if (item && !item.key) item.key = _n(item.name);
+  });
+  return arr;
+}
+
 // Mapa unidade → catálogo e categorias
 function getUnitCatalog(unitName) {
   // Priorizar cache em memória (versão editada) sobre seed hardcoded
   const slug = typeof unitSlug === 'function' ? unitSlug(unitName) : (unitName||'').toLowerCase().replace(/[^a-z0-9]+/g,'_');
   if (window._unitCatalogCache && window._unitCatalogCache[slug]) {
     // Derivar categorias do catálogo em cache (preserva ordem de edição)
-    const cachedCat = window._unitCatalogCache[slug];
+    const cachedCat = _ensureItemKeys(window._unitCatalogCache[slug]);
     const cats = [...new Set(cachedCat.map(i => i.category))];
     return { catalog: cachedCat, categories: cats };
   }
@@ -5490,7 +5507,7 @@ function _migrarEstruturaPizzaUnits() {
 // Activity log
 window.unitMinimums = load('pizza_unit_minimums', {});
 
-let catalog     = load('pizza_catalog', SEED_CATALOG);       // CPD
+let catalog     = _ensureItemKeys(load('pizza_catalog', SEED_CATALOG));       // CPD
 // unitCatalog é resolvido dinamicamente conforme a sessão/unidade ativa
 // Cada unidade usa seu próprio catálogo independente
 let unitCatalog = UNIT_SEED_CATALOG; // será sobrescrito por resolveUnitCatalog() após login
@@ -5843,11 +5860,11 @@ function applySession() {
     const slug = unitSlug(session.unit);
     // Prioridade: 1) cache do Firebase 2) localStorage 3) seed hardcoded
     if (window._unitCatalogCache && window._unitCatalogCache[slug]) {
-      unitCatalog = window._unitCatalogCache[slug];
+      unitCatalog = _ensureItemKeys(window._unitCatalogCache[slug]);
     } else {
       try {
         const local = localStorage.getItem('pizza_unit_catalog_' + slug);
-        if (local) { unitCatalog = JSON.parse(local); }
+        if (local) { unitCatalog = _ensureItemKeys(JSON.parse(local)); }
         else { unitCatalog = getUnitCatalog(session.unit).catalog; }
       } catch(e) { unitCatalog = getUnitCatalog(session.unit).catalog; }
     }
