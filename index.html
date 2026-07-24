@@ -7653,19 +7653,32 @@ function viewEnviosDia() {
 
   // ── Filtros ────────────────────────────────────────────────────────────────
   let activeFilter = 'todos';
+  let searchQuery = '';
+  const searchWrap = el('div', {cls:'search-wrap', style:'margin-bottom:12px'});
+  const searchIcon = el('span', {cls:'search-icon', html:'<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'});
+  const searchInp  = el('input', {type:'text', placeholder:'Buscar item...', id:'envios-search'});
+  searchWrap.appendChild(searchIcon);
+  searchWrap.appendChild(searchInp);
   const filterTabs = el('div', {cls:'envios-filter-tabs'});
   const tableWrap  = el('div', {});
+  frag.appendChild(searchWrap);
   frag.appendChild(filterTabs);
   frag.appendChild(tableWrap);
 
   function buildMatrix() {
     tableWrap.innerHTML = '';
-    const filtered = activeFilter === 'todos' ? rows :
+    let filtered = activeFilter === 'todos' ? rows :
                      rows.filter(r => r.situacao === activeFilter);
+    if (searchQuery) {
+      const q = _norm(searchQuery);
+      filtered = filtered.filter(r => _norm(r.name).includes(q));
+    }
 
     if (filtered.length === 0) {
       const empty = el('div', {style:'padding:24px;text-align:center;color:var(--success);font-weight:600;font-size:13px'});
-      empty.textContent = '\u2705 Nenhum item neste filtro.';
+      empty.textContent = searchQuery
+        ? '\u2705 Nenhum item encontrado para "' + searchQuery + '".'
+        : '\u2705 Nenhum item neste filtro.';
       tableWrap.appendChild(empty);
       return;
     }
@@ -7835,6 +7848,10 @@ function viewEnviosDia() {
   });
 
   buildMatrix();
+  searchInp.addEventListener('input', () => {
+    searchQuery = searchInp.value;
+    buildMatrix();
+  });
   return frag;
 }
 
