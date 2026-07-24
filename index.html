@@ -535,19 +535,23 @@
     background:rgba(42,145,72,.15); color:var(--accent-dark,#1A5229);
     font-weight:600;
   }
-  .qp-table { width:100%; border-collapse:collapse; }
+  .qp-table { width:100%; border-collapse:separate; border-spacing:0 8px; }
   .qp-table th {
     font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px;
     color:var(--text-3); padding:8px 12px; text-align:left;
-    background:var(--surface-2); border-bottom:1.5px solid var(--border);
+    background:transparent; border-bottom:none;
   }
   .qp-table th.center { text-align:center; }
   .qp-table td {
-    padding:10px 12px; border-bottom:1px solid var(--border);
+    padding:12px; border-bottom:none; background:var(--surface);
     vertical-align:middle; font-size:13px; color:var(--text);
   }
-  .qp-table tr:last-child td { border-bottom:none; }
-  .qp-table tr:nth-child(even) td { background:var(--surface-2); }
+  .qp-table td:first-child { border-radius:var(--radius) 0 0 var(--radius); border-left:1.5px solid var(--border); border-top:1.5px solid var(--border); border-bottom:1.5px solid var(--border); }
+  .qp-table td:last-child  { border-radius:0 var(--radius) var(--radius) 0; border-right:1.5px solid var(--border); border-top:1.5px solid var(--border); border-bottom:1.5px solid var(--border); }
+  .qp-table td:not(:first-child):not(:last-child) { border-top:1.5px solid var(--border); border-bottom:1.5px solid var(--border); }
+  .qp-table tr.qp-precisa td { background:var(--warning-bg); }
+  .qp-table tr.qp-precisa td:first-child { border-left-color:#D6A017; border-top-color:#D6A017; border-bottom-color:#D6A017; }
+  .qp-table tr.qp-precisa td:last-child  { border-right-color:#D6A017; border-top-color:#D6A017; border-bottom-color:#D6A017; }
   .qp-item-name { font-weight:500; }
   .qp-rendimento { font-size:11px; color:var(--text-3); margin-top:2px; }
   .qp-lotes-cell { display:flex; align-items:center; gap:6px; justify-content:center; }
@@ -865,15 +869,16 @@
   .envios-filter-tab { padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-2); transition: all .15s; touch-action: manipulation; }
   .envios-filter-tab.active { background: var(--accent, #1A5229); color: #fff; border-color: var(--accent, #1A5229); }
 
-  /* ── Envios do Dia: versão em cards para telas estreitas ──────────────
-     A tabela matriz (11 colunas) fica ótima em desktop, mas em celular
-     vira scroll horizontal. Abaixo de 700px trocamos por um card por
-     item, mostrando as mesmas 4 unidades + CPD, sem perder informação. */
-  .envios-cards { display: none; flex-direction: column; gap: 10px; }
-  @media (max-width: 700px) {
-    .envios-wrap  { display: none; }
-    .envios-cards { display: flex; }
-  }
+  /* ── Envios do Dia: cards colapsáveis (mobile e desktop) ──────────────
+     Cada item vira um card que expande sob demanda pro detalhe por
+     unidade — itens com falta já vêm abertos, os OK ficam fechados. */
+  .envios-cards { display: flex; flex-direction: column; gap: 10px; }
+  .envios-wrap { display: none; }
+  .envios-card-summary { cursor: pointer; touch-action: manipulation; }
+  .envios-card-detail { display: none; }
+  .envios-card.open .envios-card-detail { display: block; }
+  .envios-card-chevron { transition: transform .2s; display: inline-block; font-size: 11px; color: var(--text-3); }
+  .envios-card.open .envios-card-chevron { transform: rotate(180deg); }
   .envios-card-cat-header {
     font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
     color: var(--accent-dark, #1A5229); background: #F5EDD8; padding: 7px 10px;
@@ -7770,18 +7775,25 @@ function viewEnviosDia() {
         cardsWrap.appendChild(el('div', {cls:'envios-card-cat-header'}, rowCat));
       }
 
-      const card = el('div', {cls:'envios-card' + (row.situacao === 'falta' ? ' falta' : '')});
+      const isOpen = row.situacao === 'falta';
+      const card = el('div', {cls:'envios-card' + (row.situacao === 'falta' ? ' falta' : '') + (isOpen ? ' open' : '')});
 
-      const header = el('div', {cls:'envios-card-header'});
-      header.appendChild(el('div', {cls:'envios-card-name'}, row.name));
+      const summary = el('div', {cls:'envios-card-summary envios-card-header'});
+      summary.appendChild(el('div', {cls:'envios-card-name'}, row.name));
+      const rightWrap = el('div', {style:'display:flex;align-items:center;gap:10px'});
+      rightWrap.appendChild(el('span', {style:'font-size:11px;color:var(--text-3)'}, 'CPD: ' + row.estCPD));
       const badge = el('span', {cls:'envios-badge ' + row.situacao});
       badge.textContent = row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta;
-      header.appendChild(badge);
-      card.appendChild(header);
+      rightWrap.appendChild(badge);
+      rightWrap.appendChild(el('span', {cls:'envios-card-chevron'}, '\u25BE'));
+      summary.appendChild(rightWrap);
+      summary.addEventListener('click', () => card.classList.toggle('open'));
+      card.appendChild(summary);
 
-      const cpdLine = el('div', {cls:'envios-card-cpd' + (row.estCPD < row.totalAEnviar ? ' low' : '')},
+      const detail = el('div', {cls:'envios-card-detail'});
+      const cpdLine = el('div', {cls:'envios-card-cpd' + (row.estCPD < row.totalAEnviar ? ' low' : ''), style:'margin-top:2px'},
         'Est. CPD: ' + row.estCPD + ' \u00B7 Total a enviar: ' + row.totalAEnviar);
-      card.appendChild(cpdLine);
+      detail.appendChild(cpdLine);
 
       const unitsWrap = el('div', {cls:'envios-card-units', style:'margin-top:8px'});
       UNIT_NAMES.forEach(u => {
@@ -7800,7 +7812,8 @@ function viewEnviosDia() {
         uRow.appendChild(vals);
         unitsWrap.appendChild(uRow);
       });
-      card.appendChild(unitsWrap);
+      detail.appendChild(unitsWrap);
+      card.appendChild(detail);
       cardsWrap.appendChild(card);
     });
     tableWrap.appendChild(cardsWrap);
@@ -8507,7 +8520,7 @@ function viewQuadroProducao() {
       }
 
       items.forEach(({ ft, lotes, aEnviarTotal, estCPD, cobertura, lotesEfetivos, liberado }) => {
-        const tr = el('tr');
+        const tr = el('tr', {cls: (lotes > 0 && dayCode) ? 'qp-precisa' : ''});
 
         // Nome + rendimento
         const tdNome = el('td');
