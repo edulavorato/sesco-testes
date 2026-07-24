@@ -8049,7 +8049,8 @@ function viewValidadeControl() {
 
       const tbody = el('tbody');
 
-      // Estado de abertura por categoria — começa fechado
+      // Estado de abertura por categoria — categorias com vencido/alerta já abrem
+      // automaticamente (urgência primeiro), as demais começam fechadas
       const openCatsValid = {};
 
       function toggleValidCat(cat, catTr) {
@@ -8070,6 +8071,7 @@ function viewValidadeControl() {
         const nExpCat   = catLotesAll.filter(l => l._status === 'expired').length;
         const nAlertCat = catLotesAll.filter(l => l._status === 'alert').length;
         const nLotesCat = catLotesAll.length;
+        if (nExpCat > 0 || nAlertCat > 0) openCatsValid[cat] = true;
 
         const catTr = el('tr', {cls:'valid-cat-row', style:'cursor:pointer;user-select:none'});
         const catTd = el('td');
@@ -8077,7 +8079,7 @@ function viewValidadeControl() {
         catTd.style.cssText = 'padding:7px 10px';
 
         const catLeft = el('span', {style:'display:inline-flex;align-items:center;gap:8px'});
-        const chevron = el('span', {cls:'vcat-chevron', style:'font-size:10px;transition:transform .2s;display:inline-block'}, '▼');
+        const chevron = el('span', {cls:'vcat-chevron', style:'font-size:10px;transition:transform .2s;display:inline-block' + (openCatsValid[cat] ? ';transform:rotate(180deg)' : '')}, '▼');
         catLeft.appendChild(chevron);
         catLeft.appendChild(el('span', {}, cat));
 
@@ -8102,15 +8104,19 @@ function viewValidadeControl() {
         catTr.addEventListener('click', () => toggleValidCat(cat, catTr));
         tbody.appendChild(catTr);
 
-        catItems.forEach(item => {
+        const _sevRank = { expired: 0, alert: 1, '': 2 };
+        const catItemsWithLotes = catItems.map(item => {
           const itemLotes = (lotesByItem[_norm2(item.name)] || [])
             .slice().sort((a,b) => a.data_validade.localeCompare(b.data_validade));
           const worstStatus = itemLotes.some(l => l._status === 'expired') ? 'expired'
             : itemLotes.some(l => l._status === 'alert') ? 'alert' : '';
+          return { item, itemLotes, worstStatus };
+        }).sort((a, b) => _sevRank[a.worstStatus] - _sevRank[b.worstStatus]);
 
+        catItemsWithLotes.forEach(({ item, itemLotes, worstStatus }) => {
           const tr = el('tr');
           tr.setAttribute('data-vcat', cat);
-          tr.style.display = 'none'; // começa fechado
+          tr.style.display = openCatsValid[cat] ? '' : 'none';
 
           // Nome
           const tdName = el('td');
