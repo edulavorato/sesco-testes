@@ -8114,15 +8114,16 @@ function viewValidadeControl() {
         }).sort((a, b) => _sevRank[a.worstStatus] - _sevRank[b.worstStatus]);
 
         catItemsWithLotes.forEach(({ item, itemLotes, worstStatus }) => {
-          const tr = el('tr');
+          const rowBg = worstStatus === 'expired' ? 'var(--danger-bg)' : worstStatus === 'alert' ? 'var(--warning-bg)' : '';
+          const tr = el('tr', {style: rowBg ? `background:${rowBg}` : ''});
           tr.setAttribute('data-vcat', cat);
           tr.style.display = openCatsValid[cat] ? '' : 'none';
 
           // Nome
-          const tdName = el('td');
+          const tdName = el('td', {style:'padding-top:10px;padding-bottom:10px'});
           const nameSpan = el('span', {
-            style: worstStatus === 'expired' ? 'color:#A03A3A;font-weight:500'
-                 : worstStatus === 'alert'   ? 'color:#C07A00;font-weight:500' : ''
+            style: worstStatus === 'expired' ? 'color:#A03A3A;font-weight:600'
+                 : worstStatus === 'alert'   ? 'color:#C07A00;font-weight:600' : ''
           }, item.name);
           tdName.appendChild(nameSpan);
           tr.appendChild(tdName);
