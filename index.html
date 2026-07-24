@@ -108,7 +108,7 @@
     --sidebar-bg: #0C1A0F;
     --sidebar-border: #1A3020;
     --sidebar-text: #A8C4AE;
-    --sidebar-label: #2D4A34;
+    --sidebar-label: #5E8A6C;
     --sidebar-active-bg: #1A3A20;
     --sidebar-active: #5DBF7A;
 
@@ -121,7 +121,7 @@
 
     --text: #1A1A12;
     --text-2: #5A5740;
-    --text-3: #9A9880;
+    --text-3: #68664F;
     --text-inv: #F0EDE0;
 
     --success: #26743E;
@@ -840,6 +840,41 @@
   .envios-filter-tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
   .envios-filter-tab { padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-2); transition: all .15s; touch-action: manipulation; }
   .envios-filter-tab.active { background: var(--accent, #2a6049); color: #fff; border-color: var(--accent, #2a6049); }
+
+  /* ── Envios do Dia: versão em cards para telas estreitas ──────────────
+     A tabela matriz (11 colunas) fica ótima em desktop, mas em celular
+     vira scroll horizontal. Abaixo de 700px trocamos por um card por
+     item, mostrando as mesmas 4 unidades + CPD, sem perder informação. */
+  .envios-cards { display: none; flex-direction: column; gap: 10px; }
+  @media (max-width: 700px) {
+    .envios-wrap  { display: none; }
+    .envios-cards { display: flex; }
+  }
+  .envios-card-cat-header {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--accent-dark, #2a6049); background: #EAF2EC; padding: 7px 10px;
+    border-radius: 6px; margin: 4px 0 2px;
+  }
+  .envios-card {
+    background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .envios-card.falta { border-color: #E0A0A0; }
+  .envios-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .envios-card-name { font-weight: 600; font-size: 14px; color: var(--text); }
+  .envios-card-cpd { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .envios-card-cpd.low { color: #C53030; font-weight: 700; }
+  .envios-card-units { display: flex; flex-direction: column; }
+  .envios-card-unit-row {
+    display: flex; justify-content: space-between; align-items: center; font-size: 12.5px;
+    padding: 6px 0; border-top: 1px solid var(--border-light);
+  }
+  .envios-card-unit-row:first-child { border-top: none; }
+  .envios-card-unit-name { color: var(--text-2); font-weight: 500; }
+  .envios-card-unit-vals { display: flex; gap: 12px; align-items: baseline; }
+  .envios-card-unit-vals .est { color: var(--text-3); font-size: 11px; }
+  .envios-card-unit-vals .env { font-weight: 700; color: var(--accent-dark, #2a6049); min-width: 18px; text-align: right; }
+  .envios-card-unit-vals .env.dash { color: var(--text-3); font-weight: 400; }
   .envios-dia-day-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 11px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; background: #EAF2EC; color: var(--accent-dark, #2a6049); border: 1px solid var(--accent, #2a6049); }
 
 
@@ -1025,7 +1060,6 @@
     .catalog-table td.col-min  { display: table-cell; }
     .catalog-table { table-layout: auto; width: 100%; font-size: 11px; }
     .catalog-table td, .catalog-table th { padding: 5px 3px; }
-    .catalog-table .cat-inline-min { display: none; } /* hide inline min on mobile */
 
     /* Fix table layout on mobile */
     .stock-table { table-layout: auto; width: 100%; }
@@ -1187,6 +1221,15 @@
     font-size: 12px;
   }
 
+  /* Em telas de toque, .btn-sm precisa de alvo de toque adequado (WCAG 2.2 / HIG) mesmo
+     sendo visualmente compacto — evita toque errado em ações como confirmar/cancelar. */
+  @media (pointer: coarse) {
+    .btn-sm {
+      min-height: 44px;
+      padding: 10px 16px;
+    }
+  }
+
   /* UNIT TABS */
   .unit-tabs {
     display: flex;
@@ -1222,19 +1265,6 @@
     color: var(--text-3);
     pointer-events: none;
   }
-
-  /* MOVEMENTS */
-  .movement-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border-light);
-    font-size: 13px;
-  }
-  .movement-row:last-child { border-bottom: none; }
-
-  /* Batch movement row — new grouped style */
 
   .empty {
     padding: 40px;
@@ -7525,7 +7555,7 @@ function viewEnviosDia() {
   frag.appendChild(summaryRow);
 
   if (rows.length === 0) {
-    const empty = el('div', {cls:'table-wrap', style:'padding:32px;text-align:center;color:var(--text-3)'});
+    const empty = el('div', {cls:'table-wrap', style:'padding:32px;text-align:center;color:var(--success);font-weight:600'});
     empty.textContent = '\u2705 Nenhum item a enviar para ' + dayFull + '. Todas as unidades t\u00EAm estoque suficiente.';
     frag.appendChild(empty);
     return frag;
@@ -7544,8 +7574,8 @@ function viewEnviosDia() {
                      rows.filter(r => r.situacao === activeFilter);
 
     if (filtered.length === 0) {
-      const empty = el('div', {style:'padding:24px;text-align:center;color:var(--text-3);font-size:13px'});
-      empty.textContent = 'Nenhum item neste filtro.';
+      const empty = el('div', {style:'padding:24px;text-align:center;color:var(--success);font-weight:600;font-size:13px'});
+      empty.textContent = '\u2705 Nenhum item neste filtro.';
       tableWrap.appendChild(empty);
       return;
     }
@@ -7644,6 +7674,51 @@ function viewEnviosDia() {
     table.appendChild(tbody);
     wrap.appendChild(table);
     tableWrap.appendChild(wrap);
+
+    // ── Versão em cards (mesmos dados de `filtered`, um card por item) ──────
+    const cardsWrap = el('div', {cls:'envios-cards'});
+    let lastCatCard = null;
+    filtered.forEach(row => {
+      const rowCat = row._catOrder || row.category;
+      if (rowCat !== lastCatCard) {
+        lastCatCard = rowCat;
+        cardsWrap.appendChild(el('div', {cls:'envios-card-cat-header'}, rowCat));
+      }
+
+      const card = el('div', {cls:'envios-card' + (row.situacao === 'falta' ? ' falta' : '')});
+
+      const header = el('div', {cls:'envios-card-header'});
+      header.appendChild(el('div', {cls:'envios-card-name'}, row.name));
+      const badge = el('span', {cls:'envios-badge ' + row.situacao});
+      badge.textContent = row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta;
+      header.appendChild(badge);
+      card.appendChild(header);
+
+      const cpdLine = el('div', {cls:'envios-card-cpd' + (row.estCPD < row.totalAEnviar ? ' low' : '')},
+        'Est. CPD: ' + row.estCPD + ' \u00B7 Total a enviar: ' + row.totalAEnviar);
+      card.appendChild(cpdLine);
+
+      const unitsWrap = el('div', {cls:'envios-card-units', style:'margin-top:8px'});
+      UNIT_NAMES.forEach(u => {
+        const pu = row.perUnit[u];
+        const uRow = el('div', {cls:'envios-card-unit-row'});
+        uRow.appendChild(el('span', {cls:'envios-card-unit-name'}, u));
+        const vals = el('div', {cls:'envios-card-unit-vals'});
+        if (pu) {
+          vals.appendChild(el('span', {cls:'est'}, 'Est. ' + pu.est));
+          vals.appendChild(el('span', {cls:'env' + (pu.aEnviar > 0 ? '' : ' dash')},
+            pu.aEnviar > 0 ? String(pu.aEnviar) : '\u2014'));
+        } else {
+          vals.appendChild(el('span', {cls:'est'}, '\u2014'));
+          vals.appendChild(el('span', {cls:'env dash'}, '\u2014'));
+        }
+        uRow.appendChild(vals);
+        unitsWrap.appendChild(uRow);
+      });
+      card.appendChild(unitsWrap);
+      cardsWrap.appendChild(card);
+    });
+    tableWrap.appendChild(cardsWrap);
   }
 
   // Montar botões de filtro
