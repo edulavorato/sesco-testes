@@ -1701,7 +1701,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.5'; // 27/07: "Envios do Dia" agora vira pro próximo dia de entrega às 15h, não só à meia-noite
+    const APP_VERSION = '1.5.6'; // 27/07: botão "Atualizar agora" do aviso de nova versão agora força buscar a página de novo (cache de 10min do GitHub Pages fazia precisar recarregar várias vezes)
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -1774,7 +1774,16 @@ auth.onAuthStateChanged(user => {
         const banner = document.createElement('div');
         banner.id = 'update-banner';
         banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#1a3a2a;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;font-family:DM Sans,sans-serif;font-size:14px;box-shadow:0 -4px 20px rgba(0,0,0,.3)';
-        banner.innerHTML = '<span>\uD83D\uDD04 Nova vers\u00E3o dispon\u00EDvel (' + remoteVer + '). Recarregue para atualizar.</span><button onclick="location.reload(true)" style="background:#1A5229;border:none;color:#fff;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;margin-left:12px">Atualizar agora</button>';
+        // OBS (27/07): "location.reload(true)" N\u00C3O for\u00E7a mais buscar do
+        // servidor em nenhum navegador moderno \u2014 esse par\u00E2metro foi removido
+        // do padr\u00E3o h\u00E1 anos e \u00E9 ignorado silenciosamente. Como o GitHub Pages
+        // serve o index.html com cache de 10 minutos (cache-control: max-age=600),
+        // um reload comum muitas vezes reaproveitava a c\u00F3pia antiga j\u00E1 em cache
+        // do navegador, mostrando o MESMO aviso de novo \u2014 da\u00ED a sensa\u00E7\u00E3o de
+        // precisar recarregar v\u00E1rias vezes at\u00E9 "pegar". Trocamos por navegar
+        // para uma URL com um par\u00E2metro \u00FAnico a cada clique: como \u00E9 uma URL
+        // diferente, o navegador n\u00E3o tem escolha a n\u00E3o ser buscar de novo.
+        banner.innerHTML = '<span>\uD83D\uDD04 Nova vers\u00E3o dispon\u00EDvel (' + remoteVer + '). Recarregue para atualizar.</span><button onclick="location.href = location.pathname + \'?v=\' + Date.now();" style="background:#1A5229;border:none;color:#fff;padding:7px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;margin-left:12px">Atualizar agora</button>';
         document.body.appendChild(banner);
       }
     }
