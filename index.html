@@ -859,6 +859,7 @@
   .envios-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; white-space: nowrap; }
   .envios-badge.ok    { background: rgba(26,82,41,.12); color: #1A5229; }
   .envios-badge.falta { background: rgba(160,58,58,.12);  color: #A03A3A; }
+  .envios-badge.pendente { background: rgba(232,160,32,.14); color: #B8740D; }
   .envios-summary-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
   .envios-summary-card { flex: 1; min-width: 110px; padding: 12px 16px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); text-align: center; }
   .envios-summary-card .e-lbl { font-size: 11px; color: var(--text-3); font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
@@ -1700,7 +1701,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.3'; // 27/07: telas agregadas do CPD (Tabela de Envios, Lista de Produção/Compras) usam a categoria do catálogo do CPD, não da primeira unidade encontrada
+    const APP_VERSION = '1.5.5'; // 27/07: "Envios do Dia" agora vira pro próximo dia de entrega às 15h, não só à meia-noite
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -4637,11 +4638,23 @@ function calcAEnviar(unitName, itemKeyOrName, estoqueAtual, dayCode) {
   return Math.max(0, minDia - (estoqueAtual || 0));
 }
 
+// Horário de corte: depois desse horário no próprio dia de entrega, a aba
+// "Envios do Dia" já considera que aquele envio passou e calcula pro PRÓXIMO
+// dia de entrega, em vez de continuar mostrando um cálculo de um envio que já
+// aconteceu. Antes disso não existia corte nenhum — o dia só virava à meia-
+// noite, então às 20h de uma segunda-feira (bem depois do envio das 14h/15h)
+// o sistema ainda calculava "hoje", podendo levar a produção/compra pro dia
+// errado. Decidido com o Eduardo em 27/07: corte às 15h.
+const HORA_CORTE_ENVIO_DIA = 15;
+
 // Detecta o próximo dia de entrega (SEG/QUA/SEX)
 function nextEnviarDay() {
-  const dow = new Date().getDay();
+  const now = new Date();
+  const dow = now.getDay();
+  const passouCorte = now.getHours() >= HORA_CORTE_ENVIO_DIA;
   const dmap = {1:'SEG', 3:'QUA', 5:'SEX'};
   for (let d = 0; d <= 6; d++) {
+    if (d === 0 && passouCorte) continue; // envio de hoje já passou do horário de corte
     const dd = (dow + d) % 7;
     if (dmap[dd]) return dmap[dd];
   }
@@ -4653,8 +4666,10 @@ function nextEnviarDay() {
 function nextEnviarDate() {
   const now = new Date();
   const dow = now.getDay();
+  const passouCorte = now.getHours() >= HORA_CORTE_ENVIO_DIA;
   const dmap = {1:'SEG', 3:'QUA', 5:'SEX'};
   for (let d = 0; d <= 6; d++) {
+    if (d === 0 && passouCorte) continue; // envio de hoje já passou do horário de corte
     const dd = (dow + d) % 7;
     if (dmap[dd]) {
       const dt = new Date(now);
@@ -7774,7 +7789,7 @@ function gerarPdfEnvios(tipo) {
 // verticais mais fortes entre as unidades para facilitar a leitura.
 // Recebe as linhas já filtradas/buscadas como aparecem na tela no momento
 // do clique.
-function gerarPdfEnviosTabela(rows, dayFull) {
+function gerarPdfEnviosTabela(rows, dayFull, staleEntries) {
   if (!rows || rows.length === 0) {
     toast('Nenhum item para gerar o PDF com os filtros atuais.');
     return;
@@ -7793,20 +7808,56 @@ function gerarPdfEnviosTabela(rows, dayFull) {
   const rowH = 16, MARGIN_BOT = 50;
   const SEP_CLR = rgb(184,146,42); // dourado — mesmo tom do separador entre unidades na tela
 
+  // Este PDF é impresso e circula fora da tela — sem o aviso de "não contado"/
+  // "contagem desatualizada" que aparece no topo da aba, quem só lê o papel não
+  // tem como saber que um "—" pode ser um item que ninguém contou ainda, e não
+  // um item que realmente está com estoque suficiente. Montamos o mesmo aviso
+  // usado na tela e imprimimos no topo de cada página do PDF.
+  function wrapText(text, maxChars) {
+    const words = text.split(', '); const lines = []; let cur = '';
+    words.forEach(w => {
+      const test = cur ? cur+', '+w : w;
+      if (test.length > maxChars && cur) { lines.push(cur); cur = w; } else cur = test;
+    });
+    if (cur) lines.push(cur);
+    return lines;
+  }
+  const naoContados = [];
+  rows.forEach(row => {
+    UNIT_NAMES.forEach(u => {
+      const pu = row.perUnit ? row.perUnit[u] : null;
+      if (pu && pu.contado === false) naoContados.push(u + ' - ' + row.name);
+    });
+  });
+  const warnMsgs = [];
+  if (naoContados.length > 0) {
+    warnMsgs.push('NÃO CONTADOS (aparecem como "NC", não some da lista): ' + naoContados.join(', '));
+  }
+  if (staleEntries && staleEntries.length > 0) {
+    warnMsgs.push('Contagem desatualizada usada no cálculo: ' + staleEntries.join('; '));
+  }
+  const warnLinesFixed = warnMsgs.length > 0
+    ? wrapText(warnMsgs.join('  |  '), 100)
+    : [];
+
   const pages = [];
   let cmds = [];
   const c = (...p) => cmds.push(p.join(' '));
 
   function newPage() {
     cmds = [];
-    c(rgb(12,26,15)+' rg', ml+' '+(H-50)+' '+(W-80)+' 40 re f');
+    const extraH = warnLinesFixed.length * 11;
+    c(rgb(12,26,15)+' rg', ml+' '+(H-50-extraH)+' '+(W-80)+' '+(40+extraH)+' re f');
     c('BT /F1 13 Tf '+rgb(240,237,224)+' rg '+(ml+8)+' '+(H-34)+' Td '+pdfStr('Tabela de Envios - '+dayFull)+' Tj ET');
     c('BT /F2 8 Tf '+rgb(168,196,174)+' rg '+(W-mr-80)+' '+(H-34)+' Td '+pdfStr(genDate)+' Tj ET');
     c('BT /F2 9 Tf '+rgb(168,196,174)+' rg '+(ml+8)+' '+(H-48)+' Td '+pdfStr(rows.length+' itens')+' Tj ET');
-    c(SEP_CLR+' RG 0.8 w '+ml+' '+(H-58)+' m '+(W-mr)+' '+(H-58)+' l S');
+    warnLinesFixed.forEach((wl, wi) => {
+      c('BT /F1 8 Tf '+rgb(255,214,120)+' rg '+(ml+8)+' '+(H-48-12-wi*11)+' Td '+pdfStr(wl)+' Tj ET');
+    });
+    c(SEP_CLR+' RG 0.8 w '+ml+' '+(H-58-extraH)+' m '+(W-mr)+' '+(H-58-extraH)+' l S');
 
     // Linha 1 do cabeçalho: nome da unidade (fundo verde escuro, texto branco)
-    const hdr1Top = H-58, hdr1H = 16;
+    const hdr1Top = H-58-extraH, hdr1H = 16;
     c(rgb(38,116,62)+' rg '+ml+' '+(hdr1Top-hdr1H)+' '+(W-ml-mr)+' '+hdr1H+' re f');
     c('BT /F1 8 Tf 1 1 1 rg '+(ml+4)+' '+(hdr1Top-hdr1H+5)+' Td '+pdfStr('ITEM')+' Tj ET');
 
@@ -7944,7 +7995,7 @@ function viewEnviosDia() {
   const btnTabela = el('button', {cls:'btn btn-outline btn-sm', style:'font-size:12px;display:flex;align-items:center;gap:5px'});
   btnTabela.innerHTML = '📄 PDF Tabela';
   btnTabela.title = 'Imprime a tabela de envios (item + estoque e quantidade a enviar de cada unidade), sem Est. CPD e sem Situação';
-  btnTabela.addEventListener('click', () => gerarPdfEnviosTabela(currentFilteredRows, dayFull));
+  btnTabela.addEventListener('click', () => gerarPdfEnviosTabela(currentFilteredRows, dayFull, staleEntries));
   pdfWrap.appendChild(btnProd);
   pdfWrap.appendChild(btnComp);
   pdfWrap.appendChild(btnTabela);
@@ -8009,6 +8060,30 @@ function viewEnviosDia() {
     });
   });
 
+  // ── Aviso de itens ainda não contados nesta janela ──────────────────────────
+  // Esses itens não entram no cálculo de A Enviar (não sabemos se é zero de
+  // verdade) — aparecem como "NC" em cada célula da tabela, mas sem um resumo
+  // no topo é fácil não perceber que ainda faltam ser contados antes de confiar
+  // na coluna Situação.
+  const naoContadosDia = [];
+  itemMap.forEach(row => {
+    UNIT_NAMES.forEach(u => {
+      const pu = row.perUnit[u];
+      if (pu && pu.contado === false) naoContadosDia.push(u + ' - ' + row.name);
+    });
+  });
+  if (naoContadosDia.length > 0) {
+    const ncBanner = el('div', {cls:'alert-banner warn', style:'margin-bottom:14px'});
+    const ncIcon = el('span', {cls:'alert-banner-icon'}, '❓');
+    const ncBody = el('div', {cls:'alert-banner-body'});
+    ncBody.appendChild(el('div', {cls:'alert-banner-title'}, naoContadosDia.length + ' item(ns) ainda não contado(s) nesta janela'));
+    ncBody.appendChild(el('div', {cls:'alert-banner-items'},
+      naoContadosDia.join(' · ') + '. Esses itens aparecem como "NC" nas células — o cálculo de A Enviar não considera o estoque zero até a unidade confirmar a contagem.'));
+    ncBanner.appendChild(ncIcon);
+    ncBanner.appendChild(ncBody);
+    frag.appendChild(ncBanner);
+  }
+
   // ── Aviso de contagem desatualizada usada neste cálculo ────────────────────
   const staleEntries = [];
   relevantPairs.forEach(pair => {
@@ -8037,8 +8112,15 @@ function viewEnviosDia() {
   itemMap.forEach(row => {
     const totalAEnviar = UNIT_NAMES.reduce((s, u) => s + (row.perUnit[u] ? row.perUnit[u].aEnviar : 0), 0);
     const falta   = Math.max(0, totalAEnviar - row.estCPD);
+    // Se alguma unidade ainda não contou este item, totalAEnviar pode estar
+    // subestimado (a contribuição dela entrou como 0). Marcamos "pendente"
+    // pra não deixar a badge "✓ OK" passar confiança que os dados não têm —
+    // ver o resumo no topo, mas cada linha também precisa avisar sozinha,
+    // já que a pessoa pode filtrar/rolar e não ver o resumo.
+    const pendente = UNIT_NAMES.some(u => row.perUnit[u] && row.perUnit[u].contado === false);
     row.totalAEnviar = totalAEnviar;
     row.falta    = falta;
+    row.pendente = pendente;
     row.situacao = falta > 0 ? 'falta' : 'ok';
     rows.push(row);
   });
@@ -8233,8 +8315,10 @@ function viewEnviosDia() {
       });
       // Situação
       const tdSit = el('td', {cls:'u-sep'});
-      const badge = el('span', {cls:'envios-badge ' + row.situacao});
-      badge.textContent = row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta;
+      const badgeCls = row.pendente ? 'pendente' : row.situacao;
+      const badge = el('span', {cls:'envios-badge ' + badgeCls});
+      badge.textContent = row.pendente ? '❓ Pendente' : (row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta);
+      if (row.pendente) badge.title = 'Alguma unidade ainda não contou este item — o cálculo pode estar incompleto.';
       tdSit.appendChild(badge);
       tr.appendChild(tdSit);
       tbody.appendChild(tr);
@@ -8253,15 +8337,17 @@ function viewEnviosDia() {
         cardsWrap.appendChild(el('div', {cls:'envios-card-cat-header'}, rowCat));
       }
 
-      const isOpen = row.situacao === 'falta';
+      const isOpen = row.situacao === 'falta' || row.pendente;
       const card = el('div', {cls:'envios-card' + (row.situacao === 'falta' ? ' falta' : '') + (isOpen ? ' open' : '')});
 
       const summary = el('div', {cls:'envios-card-summary envios-card-header'});
       summary.appendChild(el('div', {cls:'envios-card-name'}, row.name));
       const rightWrap = el('div', {style:'display:flex;align-items:center;gap:10px'});
       rightWrap.appendChild(el('span', {style:'font-size:11px;color:var(--text-3)'}, 'CPD: ' + row.estCPD));
-      const badge = el('span', {cls:'envios-badge ' + row.situacao});
-      badge.textContent = row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta;
+      const badgeCls = row.pendente ? 'pendente' : row.situacao;
+      const badge = el('span', {cls:'envios-badge ' + badgeCls});
+      badge.textContent = row.pendente ? '❓ Pendente' : (row.situacao === 'ok' ? '\u2705 OK' : '\u26A0\uFE0F Falta ' + row.falta);
+      if (row.pendente) badge.title = 'Alguma unidade ainda não contou este item — o cálculo pode estar incompleto.';
       rightWrap.appendChild(badge);
       rightWrap.appendChild(el('span', {cls:'envios-card-chevron'}, '\u25BE'));
       summary.appendChild(rightWrap);
