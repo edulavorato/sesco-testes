@@ -1700,7 +1700,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.1'; // 27/07: senhas de login agora guardadas como hash, não em texto puro
+    const APP_VERSION = '1.5.2'; // 27/07: itens não contados na janela não são mais tratados como estoque zero no cálculo de "a enviar"
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -4591,6 +4591,20 @@ function getMinPerDay(unitName) {
 
 // Calcula quantidade a enviar para um item específico
 // = max(0, Mínimo do Dia de Entrega - Estoque Atual)
+// Um item é considerado "contado" na janela atual se:
+//  - a quantidade for > 0 (alguém digitou algo, mesmo sem clicar em confirmar), OU
+//  - foi confirmado explicitamente pelo botão ✓ (cobre o caso de contagem real = 0)
+// Sem isso, "não contei ainda" e "contei e acabou" ficam indistinguíveis (os dois
+// gravam como 0), e o cálculo de "A Enviar" trata os dois casos como estoque zerado
+// de verdade — o que pode disparar pedido de reposição de um item que ninguém
+// checou ainda. CPD não tem esse conceito de janela de contagem por unidade, então
+// itens do CPD são sempre tratados como "contados".
+function itemFoiContado(unitName, itemId, qty) {
+  if ((qty || 0) > 0) return true;
+  if (!unitName || unitName === 'CPD') return true;
+  return typeof isConfirmed === 'function' ? isConfirmed(unitName, itemId) : true;
+}
+
 function calcAEnviar(unitName, itemKeyOrName, estoqueAtual, dayCode) {
   const minMap = getMinPerDay(unitName);
   // Preferência: item.key (fixo, não muda quando o nome exibido é renomeado).
@@ -6262,9 +6276,16 @@ function el(tag, attrs={}, ...children) {
             const _qty    = parseInt((qtyCell && qtyCell.textContent) || '0') || (stockObj[itemId] || 0);
             const _unitD  = opts.unitForDisplay || opts.pdfLabel || opts.unitName || '';
             const _day    = nextEnviarDay();
-            const _aEnv   = calcAEnviar(_unitD, itemKey, _qty, _day);
-            envCell.textContent = _aEnv > 0 ? String(_aEnv) : '\u2014';
-            envCell.style.color = _aEnv > 0 ? 'var(--accent-dark,#1A5229)' : 'var(--text-3)';
+            if (!itemFoiContado(_unitD, itemId, _qty)) {
+              envCell.textContent = 'NC';
+              envCell.title = 'Item ainda n\u00e3o contado nesta janela \u2014 contagem necess\u00e1ria antes de calcular o quanto enviar.';
+              envCell.style.color = '#E8A020';
+            } else {
+              const _aEnv   = calcAEnviar(_unitD, itemKey, _qty, _day);
+              envCell.textContent = _aEnv > 0 ? String(_aEnv) : '\u2014';
+              envCell.style.color = _aEnv > 0 ? 'var(--accent-dark,#1A5229)' : 'var(--text-3)';
+              envCell.title = '';
+            }
           }
         }
       });
@@ -6629,16 +6650,19 @@ function el(tag, attrs={}, ...children) {
             // Prioridade: unitForDisplay (aba de unidade) > pdfLabel > unitName
             const _unitDisp = opts.unitForDisplay || opts.pdfLabel || opts.unitName || '';
             const _day = nextEnviarDay();
-            const aEnviar = calcAEnviar(_unitDisp, item.key, qty, _day);
-            const envTd = el('td', {style:'text-align:right;font-weight:700;color:' + (aEnviar > 0 ? 'var(--accent-dark,#1A5229)' : 'var(--text-3)')});
+            const _contado = itemFoiContado(_unitDisp, item.id, qty);
+            const aEnviar = _contado ? calcAEnviar(_unitDisp, item.key, qty, _day) : 0;
+            const envTd = el('td', {style:'text-align:right;font-weight:700;color:' + (!_contado ? '#E8A020' : (aEnviar > 0 ? 'var(--accent-dark,#1A5229)' : 'var(--text-3)'))});
             envTd.setAttribute('data-aenviar-cell', item.id);
-            envTd.textContent = aEnviar > 0 ? String(aEnviar) : '\u2014';
+            envTd.textContent = !_contado ? 'NC' : (aEnviar > 0 ? String(aEnviar) : '\u2014');
             // item.key é fixo (não muda com rename), então a busca aqui é
             // direta — sem precisar normalizar nome nenhum.
             const _minMap = getMinPerDay(_unitDisp);
             const _minEntry = _minMap[item.key];
             const _minDia = _minEntry ? (_minEntry[_day] || 0) : 0;
-            envTd.title = 'M\u00EDn (' + _day + '): ' + _minDia + ' | Estoque: ' + qty + ' | A Enviar: ' + aEnviar;
+            envTd.title = !_contado
+              ? 'Item ainda n\u00E3o contado nesta janela \u2014 contagem necess\u00E1ria antes de calcular o quanto enviar.'
+              : ('M\u00EDn (' + _day + '): ' + _minDia + ' | Estoque: ' + qty + ' | A Enviar: ' + aEnviar);
             tr.appendChild(envTd);
           }
           tr.appendChild(el('td', {cls:'muted col-unit'}, item.unit));
@@ -7013,12 +7037,14 @@ function printStockPdf(unitLabel, stockObj, onlyCategory) {
         ops.push(`0.1 0.45 0.2 rg`);
         ops.push(`BT /F1 9 Tf ${colX[2]+3} ${y+1} Td (${item.qty !== undefined ? item.qty : '-'}) Tj ET`);
         // A ENVIAR: max(0, Mínimo do Dia de Entrega − Estoque Atual)
+        // Se o item não foi contado nesta janela, não calculamos "a enviar" a
+        // partir de um zero falso — mostramos "NC" (não contado) em vez de número.
         const _estoqueAtual = item.qty || 0;
-        const _aEnviar = calcAEnviar(unitLabel, item.key, _estoqueAtual, _enviarDay);
-        ops.push(`0.1 0.25 0.65 rg`);
-        ops.push(`BT /F1 9 Tf ${colX[3]+3} ${y+1} Td (${_aEnviar > 0 ? _aEnviar : '-'}) Tj ET`);
+        const _aEnviar = itemConfirmed ? calcAEnviar(unitLabel, item.key, _estoqueAtual, _enviarDay) : 0;
+        ops.push(itemConfirmed ? `0.1 0.25 0.65 rg` : `0.7 0.45 0.05 rg`);
+        ops.push(`BT /F1 9 Tf ${colX[3]+3} ${y+1} Td ${itemConfirmed ? ('(' + (_aEnviar > 0 ? _aEnviar : '-') + ')') : '(NC)'} Tj ET`);
         // Fundo azul claro na célula A ENVIAR se tiver valor
-        if (_aEnviar > 0) {
+        if (itemConfirmed && _aEnviar > 0) {
           const envX = colX[3]; const colWEnv = colW[3];
           ops.splice(ops.length - 1, 0,
             `0.88 0.93 0.98 rg ${envX} ${y-2} ${colWEnv} 13 re f 0 0 0 rg`,
@@ -7539,6 +7565,7 @@ function gerarPdfEnvios(tipo) {
   // Coletar itens com falta no CPD filtrados por tipo
   const linhas = [];
   const relevantPairs = new Set();
+  const naoContados = []; // itens com estoque 0 e não contados nesta janela — não entram no cálculo, mas são avisados
   UNIT_NAMES.forEach(unitName => {
     const ucat   = getUnitCatalog(unitName).catalog;
     const ustock = unitStock[unitName] || {};
@@ -7546,6 +7573,15 @@ function gerarPdfEnvios(tipo) {
     ucat.forEach(item => {
       if (classificarItem(item.name) !== tipo) return;
       const estUnit = ustock[item.id] || 0;
+      // Item com estoque 0 e ainda não contado nesta janela: não sabemos o
+      // valor real, então não tratamos como "zero de verdade" no cálculo —
+      // só avisamos, em vez de silenciosamente considerar que a unidade tem 0.
+      if (!itemFoiContado(unitName, item.id, estUnit)) {
+        const minEntry = minMap[item.key];
+        const minDia = minEntry ? (minEntry[day] || 0) : 0;
+        if (minDia > 0) naoContados.push(unitName + ' - ' + item.name);
+        return;
+      }
       const aEnviar = calcAEnviar(unitName, item.key, estUnit, day);
       if (aEnviar === 0) return; // sem mínimo ou unidade já tem
       relevantPairs.add(unitName + '|' + item.category);
@@ -7574,9 +7610,19 @@ function gerarPdfEnvios(tipo) {
         : ' (' + st.days + (st.days === 1 ? ' dia' : ' dias') + ' atr\u00E1s)'));
     }
   });
+  // Itens com m\u00EDnimo pro dia mas ainda n\u00E3o contados nesta janela \u2014 n\u00E3o entraram
+  // no c\u00E1lculo acima porque n\u00E3o sabemos se s\u00E3o zero de verdade, mas \u00E9 importante
+  // avisar: podem estar faltando sem aparecer na lista.
+  if (naoContados.length > 0) {
+    staleEntries.push('N\u00C3O CONTADOS (podem estar faltando e n\u00E3o aparecem na lista): ' + naoContados.join(', '));
+  }
 
   if (linhas.length === 0) {
-    toast((tipo === 'produzido' ? 'Nenhum item de producao' : 'Nenhum item de compra') + ' faltando para ' + dayFull);
+    if (naoContados.length > 0) {
+      toast('Nenhum item calculado, mas há ' + naoContados.length + ' item(ns) ainda não contado(s) que podem estar faltando. Confira as unidades antes de assumir que está tudo certo.');
+    } else {
+      toast((tipo === 'produzido' ? 'Nenhum item de producao' : 'Nenhum item de compra') + ' faltando para ' + dayFull);
+    }
     return;
   }
 
@@ -7809,11 +7855,12 @@ function gerarPdfEnviosTabela(rows, dayFull) {
 
       const pu    = row.perUnit ? row.perUnit[u] : null;
       const hasPu = !!pu;
-      const hasEnv = hasPu && pu.aEnviar > 0;
+      const naoContado = hasPu && pu.contado === false;
+      const hasEnv = hasPu && !naoContado && pu.aEnviar > 0;
       const estVal = hasPu ? String(pu.est) : '-';
-      const envVal = hasEnv ? String(pu.aEnviar) : '-';
+      const envVal = naoContado ? 'NC' : (hasEnv ? String(pu.aEnviar) : '-');
       const estClr = hasPu ? rgb(70,68,58) : rgb(160,158,140);
-      const envClr = hasEnv ? rgb(26,82,41) : rgb(160,158,140);
+      const envClr = naoContado ? rgb(184,116,13) : (hasEnv ? rgb(26,82,41) : rgb(160,158,140));
       c('BT /F2 8.5 Tf '+estClr+' rg '+(gx+3)+' '+midY+' Td '+pdfStr(estVal)+' Tj ET');
       c('BT /F1 8.5 Tf '+envClr+' rg '+(gx+3+subW)+' '+midY+' Td '+pdfStr(envVal)+' Tj ET');
     });
@@ -7924,7 +7971,11 @@ function viewEnviosDia() {
       const minDia = minEntry ? (minEntry[day] || 0) : 0;
       if (minDia === 0) return; // sem mínimo para este dia — não é relevante
 
-      const aEnviar = calcAEnviar(unitName, item.key, estSoma, day);
+      // Se o item está com estoque 0 e ainda não foi contado nesta janela, não
+      // sabemos se é zero de verdade — não calculamos aEnviar a partir disso,
+      // só marcamos como "não contado" pra exibir na tabela em vez de um número.
+      const contado = itemFoiContado(unitName, item.id, estSoma);
+      const aEnviar = contado ? calcAEnviar(unitName, item.key, estSoma, day) : 0;
       if (aEnviar > 0) relevantPairs.add(unitName + '|' + item.category);
 
       if (!itemMap.has(item.key)) {
@@ -7935,8 +7986,9 @@ function viewEnviosDia() {
           perUnit: {}
         });
       }
-      // Sempre registrar: estoque e aEnviar (pode ser 0 se unidade já tem suficiente)
-      itemMap.get(item.key).perUnit[unitName] = { est: estSoma, aEnviar };
+      // Sempre registrar: estoque, aEnviar (pode ser 0 se unidade já tem suficiente
+      // ou se ainda não contado) e a flag "contado" para diferenciar os dois casos.
+      itemMap.get(item.key).perUnit[unitName] = { est: estSoma, aEnviar, contado };
     });
   });
 
@@ -8132,9 +8184,16 @@ function viewEnviosDia() {
         const tdEst = el('td', {cls:'u-sep'});
         const tdEnv = el('td');
         if (pu) {
-          // Mostrar estoque sempre; A Enviar: valor se > 0, '—' se 0 (unidade já tem suficiente)
+          // Mostrar estoque sempre; A Enviar: valor se > 0, '—' se 0 (unidade já tem
+          // suficiente), 'NC' se ainda não contado nesta janela (não sabemos se é zero
+          // de verdade — não mostramos como se a unidade já tivesse o suficiente)
           tdEst.textContent = String(pu.est);
-          if (pu.aEnviar > 0) {
+          if (pu.contado === false) {
+            tdEnv.textContent = 'NC';
+            tdEnv.className = 'val-dash';
+            tdEnv.style.color = '#E8A020';
+            tdEnv.title = 'Item ainda não contado nesta janela';
+          } else if (pu.aEnviar > 0) {
             tdEnv.textContent = String(pu.aEnviar);
             tdEnv.className = 'val-env';
           } else {
@@ -8201,8 +8260,13 @@ function viewEnviosDia() {
         const vals = el('div', {cls:'envios-card-unit-vals'});
         if (pu) {
           vals.appendChild(el('span', {cls:'est'}, 'Est. ' + pu.est));
-          vals.appendChild(el('span', {cls:'env' + (pu.aEnviar > 0 ? '' : ' dash')},
-            pu.aEnviar > 0 ? String(pu.aEnviar) : '\u2014'));
+          if (pu.contado === false) {
+            const ncSpan = el('span', {cls:'env dash', style:'color:#E8A020', title:'Item ainda n\u00e3o contado nesta janela'}, 'NC');
+            vals.appendChild(ncSpan);
+          } else {
+            vals.appendChild(el('span', {cls:'env' + (pu.aEnviar > 0 ? '' : ' dash')},
+              pu.aEnviar > 0 ? String(pu.aEnviar) : '\u2014'));
+          }
         } else {
           vals.appendChild(el('span', {cls:'est'}, '\u2014'));
           vals.appendChild(el('span', {cls:'env dash'}, '\u2014'));
@@ -8706,18 +8770,26 @@ function viewQuadroProducao() {
     const _norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
     // Buscar item no catálogo CPD pelo cpdId
     const cpdItem = (catalog || []).find(c => c.id === ft.cpdId);
-    if (!cpdItem) return { lotes:0, aEnviarTotal:0, estCPD:0 };
+    if (!cpdItem) return { lotes:0, aEnviarTotal:0, estCPD:0, pendente:false };
     const estCPD = cpd[cpdItem.id] || 0;
     // Somar A Enviar de todas as unidades
     let aEnviarTotal = 0;
+    let pendente = false; // true se alguma unidade ainda não contou este item nesta janela
     const dayCode = qpDayCode(activeDay);
-    if (!dayCode) return { lotes:0, aEnviarTotal:0, estCPD };
+    if (!dayCode) return { lotes:0, aEnviarTotal:0, estCPD, pendente };
     UNIT_NAMES.forEach(unitName => {
       const ucat   = getUnitCatalog(unitName).catalog;
       const ustock = unitStock[unitName] || {};
       // Somar estoques de todos os IDs do mesmo item nessa unidade
       const matchItems = ucat.filter(i => i.key === cpdItem.key);
       const estUnit = matchItems.reduce((s,i) => s + (ustock[i.id] || 0), 0);
+      // Se a unidade ainda não contou este item (estoque 0 sem confirmação),
+      // não sabemos o valor real — não somamos ao total, só sinalizamos.
+      const _repItem = matchItems[0];
+      if (_repItem && !itemFoiContado(unitName, _repItem.id, estUnit)) {
+        pendente = true;
+        return;
+      }
       const aEnv = calcAEnviar(unitName, cpdItem.key, estUnit, dayCode);
       aEnviarTotal += aEnv;
     });
@@ -8725,7 +8797,7 @@ function viewQuadroProducao() {
     const necessidade = aEnviarTotal * cobertura;
     const deficit = Math.max(0, necessidade - estCPD);
     const lotes = deficit > 0 ? Math.ceil(deficit / ft.rendFichas) : 0;
-    return { lotes, aEnviarTotal, estCPD };
+    return { lotes, aEnviarTotal, estCPD, pendente };
   }
 
   // Dia de entrega correspondente ao dia selecionado
@@ -8770,12 +8842,12 @@ function viewQuadroProducao() {
 
     FT_LIBRARY.forEach(ft => {
       const cobertura = parseInt(qpGet(`cob_${ft.id}`, ft.coberturaDefault)) || 1;
-      const { lotes, aEnviarTotal, estCPD } = calcLotesSugeridos(ft, cobertura);
+      const { lotes, aEnviarTotal, estCPD, pendente } = calcLotesSugeridos(ft, cobertura);
       // Quantidade SEMPRE zero — responsavel decide aceitar a sugestao
       const lotesManuais = qpGet(`qty_${dayIdx}_${ft.id}`, 0);
       const lotesEfetivos = lotesManuais;
       const liberado = qpGet(`lib_${dayIdx}_${ft.id}`, false);
-      ftPorArea[ft.area].push({ ft, lotes, aEnviarTotal, estCPD, cobertura, lotesEfetivos, liberado });
+      ftPorArea[ft.area].push({ ft, lotes, aEnviarTotal, estCPD, cobertura, lotesEfetivos, liberado, pendente });
       if (lotesEfetivos > 0) totalLotes++;
       if (liberado) totalLiberados++;
     });
@@ -8921,7 +8993,7 @@ function viewQuadroProducao() {
         return;
       }
 
-      items.forEach(({ ft, lotes, aEnviarTotal, estCPD, cobertura, lotesEfetivos, liberado }) => {
+      items.forEach(({ ft, lotes, aEnviarTotal, estCPD, cobertura, lotesEfetivos, liberado, pendente }) => {
         const tr = el('tr', {cls: (lotes > 0 && dayCode) ? 'qp-precisa' : ''});
 
         // Nome + rendimento
@@ -8930,6 +9002,12 @@ function viewQuadroProducao() {
         nameSpan.textContent = ft.nome;
         if (lotes === 0 && dayCode) {
           nameSpan.appendChild(el('span', {cls:'qp-sem-necessidade'}, '✓ Estoque OK'));
+        }
+        if (pendente && dayCode) {
+          nameSpan.appendChild(el('span', {
+            style:'display:inline-block;margin-left:6px;font-size:10px;font-weight:700;color:#B8740D;background:rgba(232,160,32,.12);padding:1px 6px;border-radius:8px',
+            title:'Alguma unidade ainda não contou este item nesta janela — a sugestão abaixo pode estar subestimada.'
+          }, '⚠ NÃO CONTADO EM ALGUMA UNIDADE'));
         }
         tdNome.appendChild(nameSpan);
         tdNome.appendChild(el('div', {cls:'qp-rendimento'}, ft.rendimento));
