@@ -1700,7 +1700,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.2'; // 27/07: itens não contados na janela não são mais tratados como estoque zero no cálculo de "a enviar"
+    const APP_VERSION = '1.5.3'; // 27/07: telas agregadas do CPD (Tabela de Envios, Lista de Produção/Compras) usam a categoria do catálogo do CPD, não da primeira unidade encontrada
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -4603,6 +4603,22 @@ function itemFoiContado(unitName, itemId, qty) {
   if ((qty || 0) > 0) return true;
   if (!unitName || unitName === 'CPD') return true;
   return typeof isConfirmed === 'function' ? isConfirmed(unitName, itemId) : true;
+}
+
+// Um mesmo produto (mesma item.key) pode estar cadastrado em categorias
+// diferentes em cada catálogo de unidade (ex: "Coca-Cola 1,5L" é "Salão" na
+// Asa Sul, "Bar" na Vicente Pires, "Delivery" no SIG/Delivery/CPD) — cada
+// unidade organiza sua contagem física do jeito que faz sentido pra ela.
+// Isso é normal e não deve mudar. O problema é só nas telas do CPD que juntam
+// a necessidade de TODAS as unidades num único item (Tabela de Envios, Lista
+// de Produção/Compras): sem essa função, a categoria exibida era a da
+// primeira unidade encontrada na iteração (sempre Asa Sul), mesmo quando a
+// necessidade real vinha de outra unidade com categoria diferente. Usamos o
+// catálogo do CPD como referência única e estável pra essas telas agregadas.
+function categoriaCanonica(itemKey, categoriaFallback) {
+  const cpdItem = (typeof catalog !== 'undefined' && Array.isArray(catalog))
+    ? catalog.find(c => c.key === itemKey) : null;
+  return cpdItem ? cpdItem.category : categoriaFallback;
 }
 
 function calcAEnviar(unitName, itemKeyOrName, estoqueAtual, dayCode) {
@@ -7595,7 +7611,7 @@ function gerarPdfEnvios(tipo) {
         existing.detalhe += ', ' + unitName + ' (' + aEnviar + ')';
       } else {
         linhas.push({ name: item.name, key: item.key, unit: item.unit, falta,
-                      category: item.category, detalhe: unitName + ' (' + aEnviar + ')' });
+                      category: categoriaCanonica(item.key, item.category), detalhe: unitName + ' (' + aEnviar + ')' });
       }
     });
   });
@@ -7626,8 +7642,9 @@ function gerarPdfEnvios(tipo) {
     return;
   }
 
-  // Ordenar por categoria depois posição
-  const refCats = getUnitCatalog('Asa Sul').categories;
+  // Ordenar por categoria depois posição — usa a ordem oficial do CPD (CATEGORIES),
+  // já que a categoria de cada linha agora também vem do catálogo do CPD.
+  const refCats = CATEGORIES;
   linhas.sort((a, b) => {
     const ia = refCats.indexOf(a.category), ib = refCats.indexOf(b.category);
     return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
@@ -7981,7 +7998,7 @@ function viewEnviosDia() {
       if (!itemMap.has(item.key)) {
         const cpdItem = catalog.find(c => c.key === item.key);
         itemMap.set(item.key, {
-          name, key: item.key, unit: item.unit, category: item.category,
+          name, key: item.key, unit: item.unit, category: cpdItem ? cpdItem.category : item.category,
           estCPD: cpdItem ? (cpd[cpdItem.id] || 0) : 0,
           perUnit: {}
         });
@@ -8027,14 +8044,22 @@ function viewEnviosDia() {
   });
 
   // Ordenar pela posição exata no catálogo das unidades (ordem de produção)
-  // Usa a posição da primeira unidade que tiver o item (Asa Sul → SIG → VP → Delivery)
+  // A CATEGORIA usada aqui é sempre a do catálogo do CPD (categoriaCanonica) —
+  // um mesmo produto pode estar em categorias diferentes em cada catálogo de
+  // unidade (ex: "Coca-Cola 1,5L" é "Salão" na Asa Sul mas "Delivery" no SIG),
+  // e usar "a primeira unidade que tiver o item" fazia essa tabela agrupada
+  // (que soma a necessidade de TODAS as unidades) mostrar um item embaixo de
+  // uma categoria que não bate com a real origem da necessidade. A posição
+  // (pos, só usada pra ordenar dentro da categoria) ainda usa a primeira
+  // unidade encontrada — isso é só estética, não afeta o agrupamento.
   const _getUnitCatalogPos = (itemKey) => {
+    const cat = categoriaCanonica(itemKey, '');
     for (const u of UNIT_NAMES) {
       const uc = getUnitCatalog(u).catalog;
       const idx = uc.findIndex(c => c.key === itemKey);
-      if (idx > -1) return { cat: uc[idx].category, pos: idx };
+      if (idx > -1) return { cat: cat || uc[idx].category, pos: idx };
     }
-    return { cat: '', pos: 99999 };
+    return { cat, pos: 99999 };
   };
   rows.forEach(r => {
     const pos = _getUnitCatalogPos(r.key);
@@ -8042,18 +8067,14 @@ function viewEnviosDia() {
     r._pos = pos.pos;
   });
   rows.sort((a, b) => {
-    // Primeiro ordenar por categoria (pela ordem em que aparece no catálogo)
+    // Primeiro ordenar por categoria, pela ordem oficial do CPD (CATEGORIES)
     const catA = a._catOrder, catB = b._catOrder;
     if (catA !== catB) {
-      // Usar a ordem da primeira unidade que tiver ambas as categorias
-      for (const u of UNIT_NAMES) {
-        const cats = getUnitCatalog(u).categories;
-        const ia = cats.indexOf(catA);
-        const ib = cats.indexOf(catB);
-        if (ia > -1 && ib > -1) return ia - ib;
-        if (ia > -1) return -1;
-        if (ib > -1) return 1;
-      }
+      const ia = CATEGORIES.indexOf(catA);
+      const ib = CATEGORIES.indexOf(catB);
+      if (ia > -1 && ib > -1) return ia - ib;
+      if (ia > -1) return -1;
+      if (ib > -1) return 1;
     }
     // Dentro da mesma categoria, pela posição no catálogo
     return a._pos - b._pos;
