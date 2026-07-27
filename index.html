@@ -1700,7 +1700,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.0'; // 27/07: migração de estrutura não sobrescreve mais slug com dados existentes
+    const APP_VERSION = '1.5.1'; // 27/07: senhas de login agora guardadas como hash, não em texto puro
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -5768,17 +5768,26 @@ function proximaJanela(cat) {
   return 'a definir';
 }
 
-const PASS_TO_UNIT = {
-  'Sesco@CPD':      { unit: 'cpd',          role: 'Equipe' },
-  'SescoAsaSul@':   { unit: 'Asa Sul',       role: 'Equipe' },
-  'Sesco#VP':       { unit: 'Vicente Pires', role: 'Equipe' },
-  'SescoSIG#':      { unit: 'SIG',           role: 'Equipe' },
-  'SescoDlv#':      { unit: 'Delivery',      role: 'Equipe' },
-  'SescoDelivery%': { unit: 'Delivery',      role: 'Equipe' },
+// Senhas armazenadas como hash SHA-256, não em texto puro, para que abrir o
+// código-fonte da página não exponha diretamente as senhas de login.
+// Gerado com: crypto.createHash('sha256').update(senha, 'utf8').digest('hex')
+const PASS_HASH_TO_UNIT = {
+  '6f1b423a81334cc40a36329efafc85b48417342f09f8ed90d3cfff61591ccd0a': { unit: 'cpd',          role: 'Equipe' }, // Sesco@CPD
+  'e38359a738a91205115ec44ddcf87dc51763acffbe9860a36bd834317120bfa4': { unit: 'Asa Sul',       role: 'Equipe' }, // SescoAsaSul@
+  '27f08604dafb13627c8939a04a2133116da34f2a2e7deed0db57aa05f7fc6c4c': { unit: 'Vicente Pires', role: 'Equipe' }, // Sesco#VP
+  '853d0be61e7c3b0915a07b2588e0382ca187f272424f996ca48071d637bab7c3': { unit: 'SIG',           role: 'Equipe' }, // SescoSIG#
+  '2de3188ea2f34eff5d967216ae375d3d75732fc25a084e68d21eb111efe5e64c': { unit: 'Delivery',      role: 'Equipe' }, // SescoDlv#
+  '298a6186d0e48834dd294747963c3796d35efe1666db086213638efe98dc979c': { unit: 'Delivery',      role: 'Equipe' }, // SescoDelivery%
 };
 
+async function _sha256Hex(str) {
+  const enc = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // LOGIN/LOGOUT
-function doLogin() {
+async function doLogin() {
   const name   = (document.getElementById('login-name').value || '').trim();
   const pass   = (document.getElementById('login-pass').value || '');
   const errDiv = document.getElementById('login-error');
@@ -5789,7 +5798,17 @@ function doLogin() {
     return;
   }
 
-  const match = PASS_TO_UNIT[pass];
+  let match = null;
+  try {
+    const hash = await _sha256Hex(pass);
+    match = PASS_HASH_TO_UNIT[hash] || null;
+  } catch (e) {
+    console.error('[Login] Erro ao verificar senha:', e);
+    errDiv.textContent = 'Erro ao verificar a senha. Tente novamente.';
+    errDiv.style.display = 'block';
+    return;
+  }
+
   if (!match) {
     errDiv.textContent = 'Senha incorreta. Verifique com o responsável.';
     errDiv.style.display = 'block';
