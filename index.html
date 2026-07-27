@@ -1700,7 +1700,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.4.0';
+    const APP_VERSION = '1.4.7'; // 26/07: troca data-URI por Blob no Safari/iPhone (tela preta persistia)
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -4931,7 +4931,15 @@ function _checkDailyReset() {
 }
 
 // Salvar confirmação de categoria
+// Mesma proteção aplicada ao PDF: se `stockObj` foi capturado num render
+// anterior ao carregamento completo do Firebase, ele pode estar desatualizado
+// (congelado vazio) mesmo com a tela já mostrando os números certos. Buscar
+// de novo aqui garante que a quantidade GRAVADA na confirmação é sempre a
+// mais atual, e não uma foto velha que o operador nem viu.
 function confirmCategory(unitName, cat, respName, stockObj) {
+  if (unitName !== 'CPD' && typeof unitStock !== 'undefined' && unitStock[unitName]) {
+    stockObj = unitStock[unitName];
+  }
   const slug = unitSlug(unitName);
   if (!catConfirmations[slug]) catConfirmations[slug] = {};
   const qtys = {};
@@ -4949,6 +4957,9 @@ function confirmCategory(unitName, cat, respName, stockObj) {
 // Retorna: 'none' | 'confirmed' | 'needs-reconfirm'
 function getCatConfirmState(unitName, cat, stockObj) {
   _checkDailyReset();
+  if (unitName !== 'CPD' && typeof unitStock !== 'undefined' && unitStock[unitName]) {
+    stockObj = unitStock[unitName];
+  }
   const slug = unitSlug(unitName);
   const conf = catConfirmations[slug] && catConfirmations[slug][cat];
   if (!conf) return 'none';
@@ -4956,6 +4967,17 @@ function getCatConfirmState(unitName, cat, stockObj) {
   const ucat = getUnitCatalog(unitName).catalog.filter(i => i.category === cat);
   const changed = ucat.some(i => (stockObj[i.id] || 0) !== (conf.qtys[i.id] || 0));
   return changed ? 'needs-reconfirm' : 'confirmed';
+}
+
+// Verificar se PELO MENOS UMA categoria já foi confirmada hoje (estado
+// 'confirmed', não 'needs-reconfirm' nem 'none'). Usado para liberar o botão
+// "PDF Contagem" do topo antes da Confirmação Geral — a barra fica menor que
+// dailyRequiredCatsConfirmed, que exige todas as obrigatórias do dia.
+function hasAnyCategoryConfirmed(unitName, stockObj) {
+  const slug  = unitSlug(unitName);
+  const confs = catConfirmations[slug];
+  if (!confs) return false;
+  return Object.keys(confs).some(cat => getCatConfirmState(unitName, cat, stockObj) === 'confirmed');
 }
 
 // Verificar se as categorias OBRIGATÓRIAS DO DIA (fixas + extras do dia da
@@ -5558,19 +5580,24 @@ function windowKey() {
 }
 
 // Marcar/desmarcar item como confirmado na janela atual
+// Sempre grava pela chave slug (ex: "asa_sul"), igual ao pizza_units — evita o
+// mesmo tipo de divergência maiúscula/minúscula que ocorreu no estoque, e permite
+// cruzar pizza_counted com pizza_units por item (contado vs. zero real).
 function setConfirmed(unit, itemId, val) {
-  if (!countedMap[unit]) countedMap[unit] = {};
+  const key = unitSlug(unit);
+  if (!countedMap[key]) countedMap[key] = {};
   const wk = windowKey();
-  if (!countedMap[unit][wk]) countedMap[unit][wk] = {};
-  if (val) countedMap[unit][wk][itemId] = true;
-  else delete countedMap[unit][wk][itemId];
+  if (!countedMap[key][wk]) countedMap[key][wk] = {};
+  if (val) countedMap[key][wk][itemId] = true;
+  else delete countedMap[key][wk][itemId];
   save('pizza_counted', countedMap);
 }
 
 // Verificar se item está confirmado na janela atual
 function isConfirmed(unit, itemId) {
+  const key = unitSlug(unit);
   const wk = windowKey();
-  return !!(countedMap[unit] && countedMap[unit][wk] && countedMap[unit][wk][itemId]);
+  return !!(countedMap[key] && countedMap[key][wk] && countedMap[key][wk][itemId]);
 }
 
 // Limpar janelas antigas (manter apenas últimas 4) para não inflar o Firebase
@@ -6380,11 +6407,9 @@ function el(tag, attrs={}, ...children) {
           });
           catWrap.appendChild(confBtn);
 
-          // PDF da categoria: só libera se confirmada
-          if (confState !== 'confirmed') {
-            catPdfBtn.classList.add('cat-pdf-btn-blocked');
-            catPdfBtn.title = 'Confirme a categoria para gerar o PDF';
-          }
+          // PDF da categoria liberado independente de confirmação — a
+          // confirmação é um controle de processo (quem contou, quando),
+          // não deve impedir tirar uma conferência em PDF a qualquer momento.
         }
 
         catWrap.appendChild(catPdfBtn);
@@ -6583,21 +6608,151 @@ function el(tag, attrs={}, ...children) {
   return wrap;
 }
 
+// Modal de seleção de categorias antes de gerar o PDF de contagem (CPD ou
+// unidade). Permite escolher só as categorias que devem entrar no PDF.
+function openPdfCategoriesModal(pdfLabel, stockObj, categories) {
+  const overlay = el('div', {cls:'confirm-modal-overlay'});
+  const box = el('div', {cls:'confirm-modal-box'});
+
+  const hdr = el('div', {cls:'confirm-modal-hdr'});
+  hdr.appendChild(el('div', {cls:'confirm-modal-title'}, 'Gerar PDF de Contagem'));
+  hdr.appendChild(el('div', {cls:'confirm-modal-sub'}, 'Selecione as categorias que devem entrar no PDF.'));
+  box.appendChild(hdr);
+
+  const body = el('div', {cls:'confirm-modal-body'});
+  const selectRow = el('div', {style:'display:flex;gap:8px;margin-bottom:10px'});
+  const selAllBtn  = el('button', {cls:'btn btn-outline btn-sm', style:'font-size:11px;padding:4px 10px'}, 'Selecionar todas');
+  const selNoneBtn = el('button', {cls:'btn btn-outline btn-sm', style:'font-size:11px;padding:4px 10px'}, 'Nenhuma');
+  selectRow.appendChild(selAllBtn);
+  selectRow.appendChild(selNoneBtn);
+  body.appendChild(selectRow);
+
+  const listWrap = el('div', {style:'display:flex;flex-direction:column;gap:8px'});
+  const checks = [];
+  (categories || []).forEach(cat => {
+    const label = el('label', {style:'display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);cursor:pointer'});
+    const cb = el('input', {type:'checkbox'});
+    cb.checked = true;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(cat));
+    listWrap.appendChild(label);
+    checks.push({ cat, cb });
+  });
+  body.appendChild(listWrap);
+  box.appendChild(body);
+
+  selAllBtn.addEventListener('click', () => checks.forEach(c => { c.cb.checked = true; }));
+  selNoneBtn.addEventListener('click', () => checks.forEach(c => { c.cb.checked = false; }));
+
+  const ftr = el('div', {cls:'confirm-modal-ftr'});
+  const cancelBtn = el('button', {cls:'btn btn-outline btn-sm'}, 'Cancelar');
+  cancelBtn.addEventListener('click', () => overlay.remove());
+  const okBtn = el('button', {cls:'btn btn-sm', style:'background:var(--accent,#1A5229);color:#fff'}, 'Gerar PDF');
+  okBtn.addEventListener('click', () => {
+    const selected = checks.filter(c => c.cb.checked).map(c => c.cat);
+    if (selected.length === 0) { toast('Selecione ao menos uma categoria.'); return; }
+    overlay.remove();
+    printStockPdf(pdfLabel, stockObj, selected);
+  });
+  ftr.appendChild(cancelBtn);
+  ftr.appendChild(okBtn);
+  box.appendChild(ftr);
+
+  overlay.appendChild(box);
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+  document.body.appendChild(overlay);
+}
+
+// Baixa um PDF já montado como string "binária-segura" (cada caractere =
+// 1 byte, valores 0-255 — é assim que todo o texto do PDF é construído
+// nas funções geradoras, via pdfStr()/String.fromCharCode) usando um
+// data: URI em base64, em vez de blob: + URL.createObjectURL.
+// Motivo: quando o app é aberto direto do arquivo (file://) ou dentro de
+// um navegador/webview mais restrito, o download via blob: às vezes não
+// dispara e não mostra erro nenhum — só "não acontece nada". data: URI é
+// bem mais confiável nesses casos e não precisa de nenhuma API extra.
+function _baixarPdfString(pdfBinaryStr, fname) {
+  let base64;
+  try {
+    base64 = btoa(pdfBinaryStr);
+  } catch (e) {
+    // Caractere fora do intervalo 0-255 escapou de algum ponto do gerador —
+    // não deveria acontecer, mas evita quebrar o download por causa disso.
+    console.warn('[PDF] Caractere inválido no conteúdo, substituindo por "?":', e);
+    base64 = btoa(pdfBinaryStr.replace(/[^\x00-\xFF]/g, '?'));
+  }
+  const dataUri = 'data:application/pdf;base64,' + base64;
+
+  // Safari no iPhone/iPad não respeita o atributo "download" de um <a>, e
+  // testamos que abrir o data: URI direto numa aba nova (window.open) também
+  // não funciona de forma confiável — fica tela preta. O jeito mais robusto
+  // conhecido pro Safari é montar um Blob real (não base64 puro) e abrir a
+  // URL de objeto gerada a partir dele — funciona melhor com arquivos
+  // maiores e é o padrão mais usado pra isso no Safari.
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); // iPadOS se identifica como Mac
+  if (isIOS) {
+    try {
+      const bytes = new Uint8Array(pdfBinaryStr.length);
+      for (let i = 0; i < pdfBinaryStr.length; i++) bytes[i] = pdfBinaryStr.charCodeAt(i) & 0xFF;
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(blob);
+      const win = window.open(blobUrl, '_blank');
+      if (!win) {
+        if (typeof toast === 'function') toast('Permita pop-ups para ver o PDF, ou tente novamente.');
+        window.location.href = blobUrl;
+      }
+      // Não revoga o blobUrl logo em seguida de propósito — a aba nova
+      // ainda precisa carregar o conteúdo; o navegador libera a memória
+      // sozinho quando a aba/documento que a usa é fechado.
+    } catch (e) {
+      console.warn('[PDF] Falha ao gerar Blob no iOS, tentando data URI como último recurso:', e);
+      const win = window.open(dataUri, '_blank');
+      if (!win) window.location.href = dataUri;
+    }
+    return;
+  }
+
+  const a = document.createElement('a');
+  a.href = dataUri;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function printStockPdf(unitLabel, stockObj, onlyCategory) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('pt-BR', {day:'2-digit', month:'long', year:'numeric'});
   const timeStr = now.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
   const user = session?.name || '';
 
+  // Sempre buscar o estoque mais atual de unitStock[] na hora de gerar, em vez
+  // de confiar só no `stockObj` recebido por parâmetro. Motivo: os botões de
+  // PDF capturam `ustock` no momento do render(); se os dados do Firebase
+  // ainda não tinham chegado nesse momento, esse objeto fica "congelado"
+  // vazio — e como updates seguintes só repintam a tabela na tela
+  // (patchStockValues), sem recriar o botão, o PDF podia sair zerado mesmo
+  // com a tela mostrando os números certos. Buscando de novo aqui garante
+  // que o PDF sempre reflete o estado mais recente em memória.
+  if (unitLabel !== 'CPD' && typeof unitStock !== 'undefined' && unitStock[unitLabel]) {
+    stockObj = unitStock[unitLabel];
+  }
+
   // Group items by category — TODOS os itens, inclusive zerados e sem mínimo
   // PDF: usar catálogo específico da unidade
   const _unitInfo  = (unitLabel !== 'CPD') ? getUnitCatalog(unitLabel) : null;
   const pdfCatSrc  = (unitLabel === 'CPD') ? catalog   : _unitInfo.catalog;
   const pdfCats    = (unitLabel === 'CPD') ? CATEGORIES : _unitInfo.categories;
+  // onlyCategory pode ser uma string (uma categoria) ou um array (várias
+  // categorias selecionadas no modal de seleção) — normaliza para array.
+  const _catFilter = onlyCategory
+    ? (Array.isArray(onlyCategory) ? onlyCategory : [onlyCategory])
+    : null;
   const byCategory = {};
   pdfCats.forEach(cat => { byCategory[cat] = []; });
   pdfCatSrc.forEach(item => {
-    if (onlyCategory && item.category !== onlyCategory) return;
+    if (_catFilter && !_catFilter.includes(item.category)) return;
     const qty = stockObj[item.id] || 0;
     const min = minimums[item.id] || 0;
     if (!byCategory[item.category]) byCategory[item.category] = [];
@@ -6676,7 +6831,7 @@ function printStockPdf(unitLabel, stockObj, onlyCategory) {
     if (ops.length) pages.push(ops.splice(0));
     y = 780;
     // Header
-    ops.push(`BT /F1 16 Tf ${ML} ${y} Td ${pdfStr("Sesconetto's - Contagem de Estoque" + (onlyCategory ? ' - ' + onlyCategory : ''))} Tj ET`);
+    ops.push(`BT /F1 16 Tf ${ML} ${y} Td ${pdfStr("Sesconetto's - Contagem de Estoque" + (_catFilter ? ' - ' + _catFilter.join(', ') : ''))} Tj ET`);
     y -= 20;
     ops.push(`BT /F2 10 Tf ${ML} ${y} Td ${pdfStr(unitLabel + '  |  ' + dateStr + ' as ' + timeStr + '  |  ' + user)} Tj ET`);
     y -= 8;
@@ -6746,26 +6901,16 @@ function printStockPdf(unitLabel, stockObj, onlyCategory) {
     return o + ')';
   }
 
-  // Para unidades: filtrar apenas categorias confirmadas
-  const _printSlug = (unitLabel !== 'CPD') ? unitSlug(unitLabel) : null;
-  const _printConfs = _printSlug ? (catConfirmations[_printSlug] || {}) : null;
-  const _confirmedCats = _printConfs
-    ? Object.keys(byCategory).filter(cat => {
-        const c = _printConfs[cat];
-        if (!c) return false;
-        // Verificar se ainda está válida (quantidades não mudaram)
-        const items = Object.keys(byCategory[cat] ? byCategory[cat].reduce((acc,i) => { acc[i.id]=i; return acc; }, {}) : {});
-        return true; // se existe a confirmação, imprimir
-      })
-    : Object.keys(byCategory);
-
-  // PDF geral de unidade: só categorias confirmadas (regra de negócio)
-  // PDF de categoria específica (onlyCategory): sempre mostra aquela categoria
-  // PDF gerado pelo CPD de uma unidade: mostra tudo (CPD tem visão completa)
-  const _isCPDViewing = (typeof isCPD === 'function' && isCPD());
-  const _catsToPrint = (unitLabel === 'CPD' || _isCPDViewing || onlyCategory)
-    ? Object.keys(byCategory)
-    : _confirmedCats;
+  // Mostrar SEMPRE todas as categorias que têm item cadastrado, contadas ou
+  // não, confirmadas ou não. Achado em 26/07: existia uma regra antiga aqui
+  // que restringia o PDF geral da unidade só às categorias já CONFIRMADAS —
+  // isso fazia o PDF sair praticamente vazio (só cabeçalho + assinatura)
+  // sempre que a unidade gerava o PDF antes de confirmar qualquer categoria.
+  // O modal de seleção de categorias mascarava isso (sempre manda uma lista,
+  // contornando a regra sem querer) — só ficou visível ao testar o botão
+  // direto, sem o modal. Confirmação é controle de processo (fechamento do
+  // dia), nunca deve decidir o que aparece impresso no PDF.
+  const _catsToPrint = Object.keys(byCategory);
 
   newPage();
   _catsToPrint.forEach(cat => {
@@ -6887,14 +7032,20 @@ function printStockPdf(unitLabel, stockObj, onlyCategory) {
   for (let i = 1; i < total; i++) xref += `${String(offsets[i]||0).padStart(10,'0')} 00000 n \n`;
   pdf += xref + `trailer\n<<\n/Size ${total}\n/Root ${catObj} 0 R\n>>\nstartxref\n${xrefOffset}\n%%EOF`;
 
-  const blob = new Blob([pdf], {type:'application/pdf'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const catSlug = onlyCategory ? '-' + onlyCategory.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'-') : '';
-  a.download = `contagem-${unitLabel.toLowerCase().replace(/\s+/g,'-')}${catSlug}-${now.toISOString().slice(0,10)}.pdf`;
-  a.click();
-  setTimeout(()=>URL.revokeObjectURL(url), 3000);
+  // _catFilter j\u00e1 normaliza onlyCategory pra array (string \u00fanica ou v\u00e1rias
+  // categorias do modal de sele\u00e7\u00e3o) \u2014 usa ele aqui em vez do onlyCategory
+  // cru, que quebrava (.toLowerCase n\u00e3o existe em array) quando vinha mais
+  // de uma categoria selecionada.
+  const catSlug = _catFilter
+    ? '-' + (_catFilter.length === 1 ? _catFilter[0] : _catFilter.length + '-categorias')
+        .toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'-')
+    : '';
+  const fname = `contagem-${unitLabel.toLowerCase().replace(/\s+/g,'-')}${catSlug}-${now.toISOString().slice(0,10)}.pdf`;
+  _baixarPdfString(pdf, fname);
+  // Sem esse aviso, o download acontece silenciosamente — principalmente no
+  // celular, onde não aparece nenhuma notificação visível — e dá a impressão
+  // de que "não aconteceu nada" mesmo quando o PDF foi gerado com sucesso.
+  if (typeof toast === 'function') toast('✓ PDF gerado! Confira nos downloads do seu aparelho.');
 }
 
 
@@ -7142,7 +7293,7 @@ function viewCpd() {
   const tableBlock = el('div', {cls:'table-wrap'});
   const th = el('div', {cls:'table-header'});
   th.appendChild(el('span', {cls:'table-title'}, 'Estoque atual \u2014 CPD'));
-  const pdfBtn = el('button', {cls:'btn btn-outline btn-sm', style:'margin-left:auto', onclick:()=>printStockPdf('CPD', cpd)});
+  const pdfBtn = el('button', {cls:'btn btn-outline btn-sm', style:'margin-left:auto', onclick:()=>openPdfCategoriesModal('CPD', cpd, CATEGORIES)});
   pdfBtn.innerHTML = '\uD83D\uDCC4 PDF Contagem';
   th.appendChild(pdfBtn);
   tableBlock.appendChild(th);
@@ -7266,13 +7417,12 @@ function viewUnits() {
 
   const pdfUnitBtn = el('button', {cls:'btn btn-outline btn-sm'});
   pdfUnitBtn.innerHTML = '\uD83D\uDCC4 PDF Contagem';
-  // PDF geral bloqueado até confirmação do gerente (para unidades)
-  if (!isCPD() && !generalState) {
-    pdfUnitBtn.classList.add('cat-pdf-btn-blocked');
-    pdfUnitBtn.title = 'Confirme todas as categorias e a contagem geral para gerar o PDF';
-  } else {
-    pdfUnitBtn.addEventListener('click', () => printStockPdf(activeUnit, ustock));
-  }
+  // Sem exigência de confirmação (nem de categoria, nem geral) para gerar o
+  // PDF — a confirmação é um controle de processo separado, não deve
+  // impedir tirar uma conferência a qualquer momento do dia.
+  // (26/07: testamos temporariamente pular esse modal pra isolar um bug —
+  // já achado e corrigido em printStockPdf/_catsToPrint — modal restaurado.)
+  pdfUnitBtn.addEventListener('click', () => openPdfCategoriesModal(activeUnit, unitStock[activeUnit] || ustock, getUnitCatalog(activeUnit).categories));
   pdfWrapUnit.appendChild(pdfUnitBtn);
   const inner = el('div', {style:'padding:14px 18px 18px'});
   // Only the unit's own logged-in user can edit their stock panel
@@ -7494,16 +7644,159 @@ function gerarPdfEnvios(tipo) {
   offsets.forEach(o => { out += String(o).padStart(10,'0')+' 00000 n '+String.fromCharCode(10); });
   out += 'trailer'+String.fromCharCode(10)+'<< /Size '+(objs.length+1)+' /Root '+catId+' 0 R >>'+String.fromCharCode(10)+'startxref'+String.fromCharCode(10)+xrefOff+String.fromCharCode(10)+'%%EOF';
 
-  const bArr = new Uint8Array(out.length);
-  for (let i = 0; i < out.length; i++) bArr[i] = out.charCodeAt(i) & 0xff;
-
   const fname = (tipo === 'produzido' ? 'Lista_Producao_' : 'Lista_Compras_') + day + '.pdf';
-  const blob  = new Blob([bArr], {type:'application/pdf'});
-  const url   = URL.createObjectURL(blob);
-  const a     = document.createElement('a');
-  a.href = url; a.download = fname; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 3000);
+  _baixarPdfString(out, fname);
   toast('PDF ' + (tipo === 'produzido' ? 'Producao' : 'Compras') + ' gerado!');
+}
+
+// PDF da "Tabela de Envios" — a mesma tabela-matriz da tela (agrupada por
+// categoria, na mesma ordem), mas sem a coluna Est. CPD e sem a coluna
+// Situação: item + Est. e A Enviar de cada unidade, com separadores
+// verticais mais fortes entre as unidades para facilitar a leitura.
+// Recebe as linhas já filtradas/buscadas como aparecem na tela no momento
+// do clique.
+function gerarPdfEnviosTabela(rows, dayFull) {
+  if (!rows || rows.length === 0) {
+    toast('Nenhum item para gerar o PDF com os filtros atuais.');
+    return;
+  }
+
+  function rgb(r,g,b) { return (r/255).toFixed(3)+' '+(g/255).toFixed(3)+' '+(b/255).toFixed(3); }
+  const W = 595.28, H = 841.89, ml = 40, mr = 40, TW = W - ml - mr;
+  const genDate = new Date().toLocaleDateString('pt-BR');
+  const nUnits  = UNIT_NAMES.length;
+  // Cada unidade ganha 2 sub-colunas: Est. (estoque atual) e A Env. (a enviar) —
+  // mesma leitura da tabela em tela, só sem a coluna Est. CPD e sem Situação.
+  const itemW      = TW * 0.28;
+  const subW       = (TW - itemW) / (nUnits * 2);
+  const unitGroupW = subW * 2;
+  const groupX     = i => ml + itemW + i * unitGroupW;
+  const rowH = 16, MARGIN_BOT = 50;
+  const SEP_CLR = rgb(184,146,42); // dourado — mesmo tom do separador entre unidades na tela
+
+  const pages = [];
+  let cmds = [];
+  const c = (...p) => cmds.push(p.join(' '));
+
+  function newPage() {
+    cmds = [];
+    c(rgb(12,26,15)+' rg', ml+' '+(H-50)+' '+(W-80)+' 40 re f');
+    c('BT /F1 13 Tf '+rgb(240,237,224)+' rg '+(ml+8)+' '+(H-34)+' Td '+pdfStr('Tabela de Envios - '+dayFull)+' Tj ET');
+    c('BT /F2 8 Tf '+rgb(168,196,174)+' rg '+(W-mr-80)+' '+(H-34)+' Td '+pdfStr(genDate)+' Tj ET');
+    c('BT /F2 9 Tf '+rgb(168,196,174)+' rg '+(ml+8)+' '+(H-48)+' Td '+pdfStr(rows.length+' itens')+' Tj ET');
+    c(SEP_CLR+' RG 0.8 w '+ml+' '+(H-58)+' m '+(W-mr)+' '+(H-58)+' l S');
+
+    // Linha 1 do cabeçalho: nome da unidade (fundo verde escuro, texto branco)
+    const hdr1Top = H-58, hdr1H = 16;
+    c(rgb(38,116,62)+' rg '+ml+' '+(hdr1Top-hdr1H)+' '+(W-ml-mr)+' '+hdr1H+' re f');
+    c('BT /F1 8 Tf 1 1 1 rg '+(ml+4)+' '+(hdr1Top-hdr1H+5)+' Td '+pdfStr('ITEM')+' Tj ET');
+
+    // Linha 2 do cabeçalho: "Est." / "A Env." por unidade (fundo cinza claro)
+    const hdr2Top = hdr1Top - hdr1H, hdr2H = 15;
+    c(rgb(245,242,232)+' rg '+ml+' '+(hdr2Top-hdr2H)+' '+(W-ml-mr)+' '+hdr2H+' re f');
+
+    UNIT_NAMES.forEach((u, i) => {
+      const gx = groupX(i);
+      // Separador vertical mais forte entre cada unidade — atravessa as duas
+      // linhas do cabeçalho, para deixar claro onde uma unidade termina e a
+      // próxima começa.
+      c(SEP_CLR+' RG 1.1 w '+gx+' '+(hdr1Top-hdr1H)+' m '+gx+' '+(hdr2Top-hdr2H)+' l S');
+      const nmW = u.length > 13 ? u.substring(0,13) : u;
+      c('BT /F1 6.5 Tf 1 1 1 rg '+(gx+3)+' '+(hdr1Top-hdr1H+5.5)+' Td '+pdfStr(nmW.toUpperCase())+' Tj ET');
+      c('BT /F1 6.5 Tf '+rgb(114,109,79)+' rg '+(gx+3)+' '+(hdr2Top-hdr2H+5)+' Td '+pdfStr('Est.')+' Tj ET');
+      c('BT /F1 6.5 Tf '+rgb(114,109,79)+' rg '+(gx+3+subW)+' '+(hdr2Top-hdr2H+5)+' Td '+pdfStr('A Env.')+' Tj ET');
+    });
+    // Separador final à direita da última unidade
+    c(SEP_CLR+' RG 1.1 w '+(W-mr)+' '+(hdr1Top-hdr1H)+' m '+(W-mr)+' '+(hdr2Top-hdr2H)+' l S');
+    return hdr2Top - hdr2H - 2;
+  }
+
+  function closePage() {
+    c(rgb(218,215,197)+' RG 0.5 w '+ml+' 36 m '+(W-mr)+' 36 l S');
+    c('BT /F2 8 Tf '+rgb(154,152,128)+' rg '+ml+' 24 Td '+pdfStr("Sesconetto's Pizzeria  -  Sistema de Estoque")+' Tj ET');
+    pages.push(cmds.slice());
+  }
+
+  let y = newPage();
+  let lastCat = null;
+  let rowIdx = 0;
+
+  rows.forEach(row => {
+    const cat  = row._catOrder || row.category;
+    const catH = (cat !== lastCat) ? 15 : 0;
+
+    if (y - catH - rowH < MARGIN_BOT) {
+      closePage();
+      y = newPage();
+      lastCat = null;
+    }
+
+    if (cat !== lastCat) {
+      lastCat = cat;
+      c(rgb(220,238,224)+' rg '+ml+' '+(y-13)+' '+(W-ml-mr)+' 14 re f');
+      c('BT /F1 8 Tf '+rgb(16,48,22)+' rg '+(ml+4)+' '+(y-9)+' Td '+pdfStr(cat.toUpperCase())+' Tj ET');
+      y -= 15;
+    }
+
+    if (rowIdx%2===0) c(rgb(253,252,247)+' rg '+ml+' '+(y-rowH)+' '+(W-ml-mr)+' '+rowH+' re f');
+    else              c(rgb(245,242,232)+' rg '+ml+' '+(y-rowH)+' '+(W-ml-mr)+' '+rowH+' re f');
+
+    const midY     = y - rowH/2 - 3;
+    const maxChars = Math.floor(itemW / 5.2);
+    const nm = row.name.length > maxChars ? row.name.substring(0, maxChars-3)+'...' : row.name;
+    c('BT /F2 9 Tf '+rgb(26,26,18)+' rg '+(ml+4)+' '+midY+' Td '+pdfStr(nm)+' Tj ET');
+
+    UNIT_NAMES.forEach((u, i) => {
+      const gx  = groupX(i);
+      // Separador vertical entre unidades, descendo por toda a altura da linha
+      c(SEP_CLR+' RG 0.6 w '+gx+' '+y+' m '+gx+' '+(y-rowH)+' l S');
+
+      const pu    = row.perUnit ? row.perUnit[u] : null;
+      const hasPu = !!pu;
+      const hasEnv = hasPu && pu.aEnviar > 0;
+      const estVal = hasPu ? String(pu.est) : '-';
+      const envVal = hasEnv ? String(pu.aEnviar) : '-';
+      const estClr = hasPu ? rgb(70,68,58) : rgb(160,158,140);
+      const envClr = hasEnv ? rgb(26,82,41) : rgb(160,158,140);
+      c('BT /F2 8.5 Tf '+estClr+' rg '+(gx+3)+' '+midY+' Td '+pdfStr(estVal)+' Tj ET');
+      c('BT /F1 8.5 Tf '+envClr+' rg '+(gx+3+subW)+' '+midY+' Td '+pdfStr(envVal)+' Tj ET');
+    });
+    c(SEP_CLR+' RG 0.6 w '+(W-mr)+' '+y+' m '+(W-mr)+' '+(y-rowH)+' l S');
+
+    c(rgb(218,215,197)+' RG 0.3 w '+ml+' '+(y-rowH)+' m '+(W-mr)+' '+(y-rowH)+' l S');
+    y -= rowH;
+    rowIdx++;
+  });
+  closePage();
+
+  // Montar PDF multipágina
+  const objs = [];
+  function addObj(cnt) { const id=objs.length+1; objs.push({id,content:cnt}); return id; }
+  const f1id = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const f2id = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+  const pageObjIds = [];
+  pages.forEach(pageCmds => {
+    const sc = pageCmds.join(String.fromCharCode(10));
+    const NL2=String.fromCharCode(10); const sid = addObj('<< /Length '+sc.length+' >>'+NL2+'stream'+NL2+sc+NL2+'endstream');
+    const pid = addObj('<< /Type /Page /Parent 999 0 R /MediaBox [0 0 '+W+' '+H+'] /Contents '+sid+' 0 R /Resources << /Font << /F1 '+f1id+' 0 R /F2 '+f2id+' 0 R >> >> >>');
+    pageObjIds.push(pid);
+  });
+  const pagesId = objs.length + 1;
+  const catId   = addObj('<< /Type /Catalog /Pages '+(pagesId+1)+' 0 R >>');
+  addObj('<< /Type /Pages /Kids ['+pageObjIds.map(id=>id+' 0 R').join(' ')+'] /Count '+pages.length+' >>');
+  objs.forEach(obj => { obj.content = obj.content.replace('/Parent 999 0 R','/Parent '+pagesId+' 0 R'); });
+
+  let out = '%PDF-1.4'+String.fromCharCode(10)+'%'+String.fromCharCode(255,255,255,255)+String.fromCharCode(10);
+  const offsets = [];
+  objs.forEach(obj => { offsets.push(out.length); out += obj.id+' 0 obj'+String.fromCharCode(10)+obj.content+String.fromCharCode(10)+'endobj'+String.fromCharCode(10); });
+  const xrefOff = out.length;
+  out += 'xref'+String.fromCharCode(10)+'0 '+(objs.length+1)+String.fromCharCode(10)+'0000000000 65535 f '+String.fromCharCode(10);
+  offsets.forEach(o => { out += String(o).padStart(10,'0')+' 00000 n '+String.fromCharCode(10); });
+  out += 'trailer'+String.fromCharCode(10)+'<< /Size '+(objs.length+1)+' /Root '+catId+' 0 R >>'+String.fromCharCode(10)+'startxref'+String.fromCharCode(10)+xrefOff+String.fromCharCode(10)+'%%EOF';
+
+  const fname = 'Tabela_Envios_' + (typeof nextEnviarDay === 'function' ? nextEnviarDay() : Date.now()) + '.pdf';
+  _baixarPdfString(out, fname);
+  toast('PDF da tabela de envios gerado!');
 }
 
 // ═══ ENVIOS DO DIA ═══════════════════════════════════════════════════════════
@@ -7528,8 +7821,13 @@ function viewEnviosDia() {
   btnComp.innerHTML = '\uD83D\uDCC4 PDF Compras';
   btnComp.title = 'Lista de itens comprados que faltam no CPD';
   btnComp.addEventListener('click', () => gerarPdfEnvios('comprado'));
+  const btnTabela = el('button', {cls:'btn btn-outline btn-sm', style:'font-size:12px;display:flex;align-items:center;gap:5px'});
+  btnTabela.innerHTML = '📄 PDF Tabela';
+  btnTabela.title = 'Imprime a tabela de envios (item + estoque e quantidade a enviar de cada unidade), sem Est. CPD e sem Situação';
+  btnTabela.addEventListener('click', () => gerarPdfEnviosTabela(currentFilteredRows, dayFull));
   pdfWrap.appendChild(btnProd);
   pdfWrap.appendChild(btnComp);
+  pdfWrap.appendChild(btnTabela);
   hdrWrap.appendChild(pdfWrap);
   frag.appendChild(hdrWrap);
 
@@ -7690,6 +7988,10 @@ function viewEnviosDia() {
   frag.appendChild(filterTabs);
   frag.appendChild(tableWrap);
 
+  // Guarda a lista atualmente filtrada/buscada (mesma que está na tela) para
+  // que o PDF "Tabela de Envios" imprima exatamente o que está sendo exibido.
+  let currentFilteredRows = rows;
+
   function buildMatrix() {
     tableWrap.innerHTML = '';
     tableWrap.classList.toggle('envios-searching', !!searchQuery);
@@ -7699,6 +8001,7 @@ function viewEnviosDia() {
       const q = _norm(searchQuery);
       filtered = filtered.filter(r => _norm(r.name).includes(q));
     }
+    currentFilteredRows = filtered;
 
     if (filtered.length === 0) {
       const empty = el('div', {style:'padding:24px;text-align:center;color:var(--success);font-weight:600;font-size:13px'});
@@ -9308,7 +9611,12 @@ function viewCatalogo() {
         catTd.style.cssText = 'padding:0;width:100%;';
         const togBtn = el('button', {cls:'cat-toggle' + (isOpen ? ' open' : '')});
         const alertCount = catItems.filter(i => (stockObj[i.id]||0) === 0 && (activeMins[i.id]||0) > 0).length;
-        togBtn.innerHTML = `<span class="cat-name">${cat}</span><span class="cat-count">${catItems.length} itens${alertCount > 0 ? ` \u00B7 \u26A0 ${alertCount}` : ''}</span><span class="cat-chevron">\u25B2</span>`;
+        // Nome da categoria vem do cat\u00E1logo (edit\u00E1vel por admin) \u2014 usa textContent
+        // via el() em vez de innerHTML para n\u00E3o interpretar o texto como HTML.
+        const catCountText = `${catItems.length} itens${alertCount > 0 ? ` \u00B7 \u26A0 ${alertCount}` : ''}`;
+        togBtn.appendChild(el('span', {cls:'cat-name'}, cat));
+        togBtn.appendChild(el('span', {cls:'cat-count'}, catCountText));
+        togBtn.appendChild(el('span', {cls:'cat-chevron'}, '\u25B2'));
         togBtn.addEventListener('click', () => {
           openCats[cat] = !openCats[cat];
           togBtn.classList.toggle('open', openCats[cat]);
