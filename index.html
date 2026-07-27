@@ -1700,7 +1700,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.4.7'; // 26/07: troca data-URI por Blob no Safari/iPhone (tela preta persistia)
+    const APP_VERSION = '1.5.0'; // 27/07: migração de estrutura não sobrescreve mais slug com dados existentes
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -5161,8 +5161,17 @@ function openConfirmModal(title, subtitle, onConfirm) {
 }
 
 // Zeragem automática: categorias não confirmadas modificadas há mais de 1h
+// DESATIVADA em 26/07 — confirmado que esse mecanismo estava apagando
+// contagens reais (ex: Refrigerados da Vicente Pires, e outros relatos no
+// mesmo dia). O risco de perder contagem de verdade feita por alguém que
+// esqueceu de clicar em "Confirmar" é pior do que o problema que isso
+// tentava resolver (contagem antiga esquecida sem confirmar). Se quiser
+// reativar essa proteção no futuro, o certo é primeiro dar um jeito de
+// AVISAR a pessoa antes de apagar (nunca apagar sozinho sem chance de
+// reação), e não achar 1h um prazo seguro pra ninguém notar.
 let _zeroCheckTimer = null;
 function _startZeroCheck() {
+  return; // desativado — ver comentário acima
   if (_zeroCheckTimer) return;
   _zeroCheckTimer = setInterval(() => {
     if (!session || isCPD()) return;
@@ -5499,20 +5508,39 @@ function _migrarEstruturaPizzaUnits() {
       _gateStep('migrate', 'Dados prontos!');
       return;
     }
-    // Verificar conexão antes de escrever (evita sobrescrever com dados offline)
+    // Chegou até aqui = detectou nó(s) com nome "cru" (ex: 'Asa Sul') em pizza_units.
+    // Isso NÃO deveria mais acontecer em uso normal — os nós antigos foram removidos
+    // manualmente em 27/07 após confirmação de que o slug já tinha todos os dados.
+    // Por segurança, NUNCA sobrescrevemos um slug que já tem dados: migração automática
+    // usando .set() já causou perda de dados em outro ponto do sistema (ver saveUnit),
+    // então aqui só copiamos para o slug se ele ainda estiver vazio. Se o slug já tem
+    // dados, apenas avisamos no console — não tocamos em nada automaticamente.
+    console.warn('[Migração] Nó(s) com nome antigo encontrado(s) em pizza_units:', keys.filter(k => UNIT_NAMES.includes(k)), '— isso não deveria mais ocorrer. Verifique manualmente no Firebase Console.');
+
     db.ref('.info/connected').once('value').then(connSnap => {
       if (!connSnap.val()) {
-        console.warn('[Migração] Abortada — sem conexão. Tentará novamente em 5s');
+        console.warn('[Migração] Adiada — sem conexão. Tentará novamente em 5s');
         window._migrandoUnits = false;
         setTimeout(_migrarEstruturaPizzaUnits, 5000);
         return;
       }
-      console.log('[Migração] Migrando pizza_units para estrutura granular...');
-      const writes = keys
-        .filter(k => UNIT_NAMES.includes(k))
-        .map(unitName => db.ref('dados/pizza_units/' + unitSlug(unitName)).set(val[unitName]));
-      Promise.all(writes).then(() => {
-      console.log('[Migração] Estrutura de unidades migrada!', keys.length, 'unidades');
+      const unitsAntigas = keys.filter(k => UNIT_NAMES.includes(k));
+      // Para cada unidade antiga encontrada, checar se o slug já tem dados antes de escrever
+      const checks = unitsAntigas.map(unitName => {
+        const slug = unitSlug(unitName);
+        return db.ref('dados/pizza_units/' + slug).once('value').then(slugSnap => {
+          const slugVal = slugSnap.val();
+          const slugTemDados = slugVal && typeof slugVal === 'object' && Object.keys(slugVal).length > 0;
+          if (slugTemDados) {
+            console.warn(`[Migração] Ignorado: '${unitName}' -> '${slug}' já tem dados (${Object.keys(slugVal).length} itens). Não sobrescrevendo. Se '${unitName}' tiver dados úteis, faça a checagem manual antes de apagar.`);
+            return null;
+          }
+          console.log(`[Migração] '${slug}' está vazio — copiando dados de '${unitName}' para lá.`);
+          return db.ref('dados/pizza_units/' + slug).set(val[unitName]);
+        });
+      });
+      Promise.all(checks).then(() => {
+        console.log('[Migração] Verificação concluída.', unitsAntigas.length, 'nó(s) antigo(s) checado(s).');
         window._migrandoUnits = false;
         window._migrationConfirmed = true;
         _gateStep('migrate', 'Dados prontos!');
@@ -7452,8 +7480,17 @@ function viewUnits() {
         .catch(e => {
           console.warn('[Firebase] Erro ao salvar item', itemId, e);
           window._fb.localWrite = false;
-          // Fallback: salvar objeto completo
-          saveUnit(activeUnit, unitStock[activeUnit]);
+          // NÃO usar saveUnit() (sobrescreve o objeto inteiro) aqui — é
+          // exatamente o que o comentário acima diz pra evitar: se este
+          // aparelho não tiver em memória algum item que outro dispositivo
+          // já salvou (rede lenta, aba com dado desatualizado), um "set"
+          // do objeto completo apaga esse item de outra pessoa do Firebase,
+          // mesmo já confirmado. Reenfileira só este item pro mecanismo de
+          // retry (mesmo usado no modo offline) em vez de sobrescrever tudo.
+          window._fb.pendingWrites = window._fb.pendingWrites || [];
+          window._fb.pendingWrites.push({ key: 'pizza_units/' + _slug + '/' + itemId, data: qty });
+          if (typeof _updatePendingBadge === 'function') _updatePendingBadge(window._fb.pendingWrites.length);
+          if (typeof _flushPendingWrites === 'function') setTimeout(_flushPendingWrites, 3000);
         });
     } else {
       window._fb = window._fb || { ready: false, pendingWrites: [] };
