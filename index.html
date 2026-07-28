@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.21'; // 28/07: corrige bug grave em "Envios do Dia" — o estoque real (Est.) de uma unidade estava sendo escondido ("-") sempre que ESSA unidade não tinha mínimo cadastrado pro dia visto, mesmo que ela realmente estoque e tenha contado o item (ex.: Cream Cheese e Burrata de Búfala na SIG). Agora o Est. sempre aparece quando a unidade tem o item no catálogo, e "NC"/pendência só é sinalizado quando a unidade realmente precisa do item naquele dia (mínimo > 0)
+    const APP_VERSION = '1.5.23'; // 28/07: em "Envios do Dia", o aviso de "itens ainda não contados" também sobe pro topo da tela, acima do cabeçalho, botões de PDF e seletor de dias — junto com o aviso de contagem em aberto/desatualizada, que já tinha subido antes
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -5398,6 +5398,14 @@ function _buildBannerContent(el, icone, titulo, corpo, onClose) {
 function renderOpenCountBanner() {
   const el = document.getElementById('open-count-banner');
   if (!el || !session) return;
+  // 28/07: em "Envios do Dia" esse mesmo aviso (contagem em aberto → cálculo
+  // desatualizado) já aparece de forma curta dentro da própria tela — mostrar
+  // os dois juntos era excesso de aviso, a pedido do Eduardo.
+  if (currentView === 'envios-dia') {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
   const abertas = isCPD()
     ? getOpenCountUnits()
     : getOpenCountUnits().filter(u => u.unitName === session.unit);
@@ -8317,10 +8325,20 @@ function viewEnviosDia() {
     ncBody.appendChild(ncBtn);
     ncBanner.appendChild(ncIcon);
     ncBanner.appendChild(ncBody);
-    frag.appendChild(ncBanner);
+    // 28/07: acima de toda a estrutura da tabela (cabeçalho, botões de PDF,
+    // seletor de dias) a pedido do Eduardo — mesmo tratamento dado ao aviso
+    // de contagem em aberto/desatualizada.
+    frag.insertBefore(ncBanner, frag.firstChild);
   }
 
   // ── Aviso de contagem desatualizada usada neste cálculo ────────────────────
+  // 28/07: a versão anterior listava unidade+categoria+"há quantos dias" pra
+  // cada par desatualizado — virava uma parede de texto somada ao banner
+  // global "Contagem em aberto" já visível no topo da tela. A pedido do
+  // Eduardo, isso vira UM aviso só, curto, sem lista detalhada — colocado
+  // acima de toda a estrutura da tabela (antes do cabeçalho "Envios do
+  // Dia"). O banner global (renderOpenCountBanner) fica escondido nesta
+  // tela pra não duplicar a mesma informação.
   const staleEntries = [];
   relevantPairs.forEach(pair => {
     const [unitName, cat] = pair.split('|');
@@ -8335,12 +8353,12 @@ function viewEnviosDia() {
     const staleBanner = el('div', {cls:'alert-banner warn', style:'margin-bottom:14px'});
     const icon = el('span', {cls:'alert-banner-icon'}, '\u26A0\uFE0F');
     const body = el('div', {cls:'alert-banner-body'});
-    body.appendChild(el('div', {cls:'alert-banner-title'}, 'Este cálculo usa contagem desatualizada'));
+    body.appendChild(el('div', {cls:'alert-banner-title'}, 'Contagem em aberto \u2014 c\u00E1lculo desatualizado'));
     body.appendChild(el('div', {cls:'alert-banner-items'},
-      staleEntries.join(' \u00B7 ') + '. O valor de A Enviar usa o último estoque registrado, não uma contagem de hoje.'));
+      'Uma ou mais unidades ainda n\u00E3o confirmaram a contagem de hoje. O valor de A Enviar usa o \u00FAltimo estoque registrado, n\u00E3o uma contagem atual.'));
     staleBanner.appendChild(icon);
     staleBanner.appendChild(body);
-    frag.appendChild(staleBanner);
+    frag.insertBefore(staleBanner, frag.firstChild);
   }
 
   // Enriquecer com totais e situação
