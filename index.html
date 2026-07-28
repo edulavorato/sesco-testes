@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.18'; // 28/07: Nova categoria "Alimentação dos Funcionários" (51 itens) adicionada ao catálogo das 4 unidades (Asa Sul, SIG, Vicente Pires, Delivery), a partir do documento de contagem de jantar dos funcionários. Itens com nome já existente em outra categoria (Mostarda, Ketchup, Rúcula, Pimentão verde, Maionese, Limão) ganharam key própria (sufixo "_func") para não colidir via categoriaCanonica()
+    const APP_VERSION = '1.5.19'; // 28/07: "Envios do Dia" (CPD) passa a considerar um item como contado quando a UNIDADE confirma a categoria inteira (não só o ✓ individual por item, que era o único sinal aceito antes e raramente é usado na prática) — corrige a divergência entre a tela da unidade (tudo confirmado) e a tela do CPD (muita coisa "NC"). Adicionado indicador "✓ ind. X/Y" por categoria, visível só pro CPD, para monitorar se os funcionários também estão confirmando item a item, como orientado
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -4803,7 +4803,35 @@ function getMinPerDay(unitName) {
 function itemFoiContado(unitName, itemId, qty) {
   if ((qty || 0) > 0) return true;
   if (!unitName || unitName === 'CPD') return true;
-  return typeof isConfirmed === 'function' ? isConfirmed(unitName, itemId) : true;
+  if (typeof isConfirmed === 'function' && isConfirmed(unitName, itemId)) return true;
+  // 28/07: a unidade também pode confirmar a contagem por CATEGORIA inteira
+  // (botão "Confirmar" no topo de cada categoria — ver confirmCategory /
+  // getCatConfirmState), sem precisar clicar no ✓ individual de cada item
+  // zerado — é esse o fluxo que os funcionários realmente usam no dia a dia.
+  // Antes desta correção, "Envios do Dia" no CPD ignorava esse sinal e
+  // mostrava "NC" (não contado) em itens que a unidade já tinha contado e
+  // confirmado por categoria, gerando divergência entre a tela da unidade
+  // (tudo confirmado) e a tela do CPD (muita coisa "NC"). A confirmação por
+  // categoria agora também conta como "contado" aqui. O ✓ individual por
+  // item continua existindo e sendo registrado à parte — ver
+  // itemConfirmadoIndividualmente(), usado no indicador de conformidade que
+  // o CPD vê ao lado de cada categoria.
+  if (typeof getUnitCatalog === 'function' && typeof getCatConfirmState === 'function' && typeof unitStock !== 'undefined') {
+    const item = getUnitCatalog(unitName).catalog.find(c => c.id === itemId);
+    if (item) {
+      const stockObj = unitStock[unitName] || {};
+      if (getCatConfirmState(unitName, item.category, stockObj) === 'confirmed') return true;
+    }
+  }
+  return false;
+}
+
+// Confirmação INDIVIDUAL do item (botão ✓ da linha), sem considerar a
+// confirmação por categoria — usado só para medir adesão ao fluxo item-a-
+// item (indicador de conformidade visível pro CPD), nunca para decidir "A
+// Enviar"/NC (isso é itemFoiContado, que já aceita confirmação por categoria).
+function itemConfirmadoIndividualmente(unitName, itemId) {
+  return typeof isConfirmed === 'function' ? isConfirmed(unitName, itemId) : false;
 }
 
 // Um mesmo produto (mesma item.key) pode estar cadastrado em categorias
@@ -6615,6 +6643,24 @@ function el(tag, attrs={}, ...children) {
       const chevron = el('span', {cls:'cat-chevron'}, '\u25BC');
       togBtn.appendChild(countSpan);
       togBtn.appendChild(progWrap);
+
+      // \u2500\u2500 Indicador de conformidade: confirma\u00E7\u00E3o INDIVIDUAL por item \u2500\u2500\u2500\u2500\u2500\u2500
+      // Vis\u00EDvel s\u00F3 pro CPD (a unidade j\u00E1 v\u00EA seu pr\u00F3prio progresso acima).
+      // A confirma\u00E7\u00E3o por categoria j\u00E1 basta pro c\u00E1lculo de "A Enviar" (ver
+      // itemFoiContado), mas o Eduardo pediu um jeito de monitorar se os
+      // funcion\u00E1rios tamb\u00E9m est\u00E3o confirmando item a item, como orientado.
+      if (isCPD() && unitName && unitName !== 'CPD') {
+        const indDone = catItems.filter(i => itemConfirmadoIndividualmente(unitName, i.id)).length;
+        const indTotal = catItems.length;
+        const indOk = indDone === indTotal;
+        const indSpan = el('span', {
+          cls: 'cat-count',
+          style: 'margin-left:2px;font-size:11px;white-space:nowrap;' + (indOk ? 'color:var(--text-3)' : 'color:var(--warning,#B8860B);font-weight:600'),
+          title: indDone + ' de ' + indTotal + ' itens desta categoria com a confirma\u00E7\u00E3o INDIVIDUAL (\u2713 por item) registrada nesta janela \u2014 independente da confirma\u00E7\u00E3o por categoria.'
+        }, (indOk ? '\u2713' : '\u26A0\uFE0F') + ' ind. ' + indDone + '/' + indTotal);
+        togBtn.appendChild(indSpan);
+      }
+
       togBtn.appendChild(chevron);
       togBtn.addEventListener('click', () => {
         openCats[cat] = !openCats[cat];
