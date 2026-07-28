@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.23'; // 28/07: em "Envios do Dia", o aviso de "itens ainda não contados" também sobe pro topo da tela, acima do cabeçalho, botões de PDF e seletor de dias — junto com o aviso de contagem em aberto/desatualizada, que já tinha subido antes
+    const APP_VERSION = '1.5.24'; // 28/07: unifica o nome/chave de "Banana Nanica" em todos os catálogos (CPD + 4 unidades) e nas tabelas de mínimo por dia (SIG/VP/Delivery usavam a chave "banana nanica 27kg", diferente da Asa Sul/"banana nanica" — isso fazia o item virar duas linhas diferentes em vez de uma só). Isso corrige só os seeds/código; os registros já gravados no Firebase precisam do script de correção em relatorio/
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -2191,7 +2191,7 @@ const SEED_CATALOG = [
   {id:'rf20',name:'Sorvete de creme 10L',key:'sorvete de creme 10l',category:'Refrigerados',unit:'Caixa'},
   {id:'rf21',name:'Morango 400g',key:'morango 400g',category:'Refrigerados',unit:'Bandeja'},
   {id:'rf22',name:'Uva verde 500g',key:'uva verde 500g',category:'Refrigerados',unit:'Bandeja'},
-  {id:'rf23',name:'Banana nanica 27kg',key:'banana nanica 27kg',category:'Refrigerados',unit:'Kg'},
+  {id:'rf23',name:'Banana Nanica',key:'banana nanica',category:'Refrigerados',unit:'Kg'},
   {id:'rf24',name:'Figo',key:'figo',category:'Refrigerados',unit:'Kg'},
   {id:'rf25',name:'Pêra',key:'pera',category:'Refrigerados',unit:'Kg'},
   {id:'rf26',name:'Abobrinha italiana',key:'abobrinha italiana',category:'Refrigerados',unit:'Kg'},
@@ -2575,7 +2575,7 @@ const ASA_SUL_CATALOG = [
   {id:'ur39',name:'Sorvete de creme 10L',key:'sorvete de creme 10l',category:'Refrigerados',unit:'Caixa'},
   {id:'ur40',name:'Morango 400g',key:'morango 400g',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur41',name:'Uva verde 500g',key:'uva verde 500g',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur42',name:'Banana nanica',key:'banana nanica',category:'Refrigerados',unit:'Kg'},
+  {id:'ur42',name:'Banana Nanica',key:'banana nanica',category:'Refrigerados',unit:'Kg'},
   {id:'ur43',name:'Figo',key:'figo',category:'Refrigerados',unit:'Kg'},
   {id:'ur44',name:'Pêra',key:'pera',category:'Refrigerados',unit:'Kg'},
   {id:'ur45',name:'Abobrinha italiana',key:'abobrinha italiana',category:'Refrigerados',unit:'Kg'},
@@ -2931,7 +2931,7 @@ const SIG_CATALOG = [
   {id:'ur39',name:'Sorvete de creme 10L',key:'sorvete de creme 10l',category:'Refrigerados',unit:'Caixa'},
   {id:'ur40',name:'Morango 400g',key:'morango 400g',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur41',name:'Uva verde 500g',key:'uva verde 500g',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur42',name:'Banana nanica 27kg',key:'banana nanica 27kg',category:'Refrigerados',unit:'Kg'},
+  {id:'ur42',name:'Banana Nanica',key:'banana nanica',category:'Refrigerados',unit:'Kg'},
   {id:'ur43',name:'Figo',key:'figo',category:'Refrigerados',unit:'Kg'},
   {id:'ur44',name:'Pêra',key:'pera',category:'Refrigerados',unit:'Kg'},
   {id:'ur45',name:'Abobrinha italiana',key:'abobrinha italiana',category:'Refrigerados',unit:'Kg'},
@@ -3218,7 +3218,7 @@ const VICENTE_PIRES_CATALOG = [
   {id:'ur39',name:'Sorvete de creme 10L',key:'sorvete de creme 10l',category:'Refrigerados',unit:'Caixa'},
   {id:'ur40',name:'Morango 400g',key:'morango 400g',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur41',name:'Uva verde 500g',key:'uva verde 500g',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur42',name:'Banana nanica 27kg',key:'banana nanica 27kg',category:'Refrigerados',unit:'Kg'},
+  {id:'ur42',name:'Banana Nanica',key:'banana nanica',category:'Refrigerados',unit:'Kg'},
   {id:'ur43',name:'Figo',key:'figo',category:'Refrigerados',unit:'Bandeja'},
   {id:'ur44',name:'Pêra',key:'pera',category:'Refrigerados',unit:'UN'},
   {id:'ur45',name:'Abobrinha italiana',key:'abobrinha italiana',category:'Refrigerados',unit:'Kg'},
@@ -3555,7 +3555,7 @@ const DELIVERY_CATALOG = [
   {id:'ur22',name:'Molho pesto bisnaga',key:'molho pesto bisnaga',category:'Refrigerados',unit:'Galão'},
   {id:'ur23',name:'Chocolate ao leite ralado',key:'chocolate ao leite ralado',category:'Refrigerados',unit:'PCT'},
   {id:'ur24',name:'Morango 400g',key:'morango 400g',category:'Refrigerados',unit:'Bandeja'},
-  {id:'ur25',name:'Banana nanica 27kg',key:'banana nanica 27kg',category:'Refrigerados',unit:'Un'},
+  {id:'ur25',name:'Banana Nanica',key:'banana nanica',category:'Refrigerados',unit:'Un'},
   {id:'ur26',name:'Manjericão',key:'manjericao',category:'Refrigerados',unit:'Maço'},
   {id:'ur27',name:'Cebola roxa',key:'cebola roxa',category:'Refrigerados',unit:'Kg'},
   {id:'ur28',name:'Rúcula',key:'rucula',category:'Refrigerados',unit:'Maço'},
@@ -4176,7 +4176,7 @@ const MIN_PER_DAY_SIG = {
   'salva borda doce de leite':{'QUA':1,'SEG':1,'SEX':1},
   'morango 400g':{'QUA':9,'SEG':9,'SEX':10},
   'uva verde 500g':{'QUA':1,'SEG':1,'SEX':1},
-  'banana nanica 27kg':{'QUA':1,'SEG':1,'SEX':1},
+  'banana nanica':{'QUA':1,'SEG':1,'SEX':1},
   'figo':{'QUA':1,'SEG':1,'SEX':2},
   'pera':{'QUA':4,'SEG':4,'SEX':6},
   'abobrinha italiana':{'QUA':3,'SEG':3,'SEX':4},
@@ -4410,7 +4410,7 @@ const MIN_PER_DAY_VICENTE_PIRES = {
   'salva borda doce de leite':{'QUA':1,'SEG':1,'SEX':2},
   'morango 400g':{'QUA':18,'SEG':18,'SEX':20},
   'uva verde 500g':{'QUA':1,'SEG':1,'SEX':2},
-  'banana nanica 27kg':{'QUA':10,'SEG':10,'SEX':20},
+  'banana nanica':{'QUA':10,'SEG':10,'SEX':20},
   'figo':{'QUA':1,'SEG':1,'SEX':3},
   'pera':{'QUA':6,'SEG':6,'SEX':10},
   'abobrinha italiana':{'QUA':5,'SEG':5,'SEX':6},
@@ -4692,7 +4692,7 @@ const MIN_PER_DAY_DELIVERY = {
   'molho pesto bisnaga':{'SEG':1,'SEX':1},
   'chocolate ao leite ralado':{'QUA':2,'SEG':2,'SEX':3},
   'morango 400g':{'QUA':6,'SEG':6,'SEX':10},
-  'banana nanica 27kg':{'QUA':24,'SEG':24,'SEX':36},
+  'banana nanica':{'QUA':24,'SEG':24,'SEX':36},
   'manjericao':{'QUA':6,'SEG':6,'SEX':10},
   'cebola roxa':{'SEG':10,'SEX':10},
   'rucula':{'QUA':6,'SEG':6,'SEX':10},
