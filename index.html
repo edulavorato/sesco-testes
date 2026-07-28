@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.15'; // 27/07: Diagnóstico geral — corrige 3 mismatches de categoriaCanonica encontrados: SIG 'Açucar refinado' Bar->Salão e 'Acqua perfumante 400ml' Salão->Limpeza (alinha com a Asa Sul, canônica), Delivery 'Geleia abacaxi c/pimenta 500g' Estoque Seco->Refrigerados. Correção equivalente precisa ser aplicada no catálogo AO VIVO do Firebase (script à parte)
+    const APP_VERSION = '1.5.16'; // 27/07: Desativa "estoque mínimo" por item nas UNIDADES (aviso amarelo na tela de contagem e coluna Mín. editável no Catálogo) — mínimo de unidade passa a existir só dentro de Envios do Dia (MIN_PER_DAY_*). Continua ativo normalmente no CPD. Corrige também patchUnitReadValues, que usava um cálculo diferente (window.unitMinimums) do que o render inicial da coluna "A Enviar" (calcAEnviar/MIN_PER_DAY) — inconsistência que podia sobrescrever o valor certo por um errado numa atualização ao vivo
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -6565,8 +6565,11 @@ function el(tag, attrs={}, ...children) {
 
         // Estado de confirmação da contagem desta janela
         const confirmed = showConfirm && unitName ? isConfirmed(unitName, item.id) : false;
-        const uMin = (showConfirm && unitName && window.unitMinimums && window.unitMinimums[unitName])
-          ? (window.unitMinimums[unitName][item.id] || 0) : 0;
+        // 27/07: "estoque mínimo" por item desativado para unidades — mínimo
+        // de unidade agora só existe dentro da lógica de Envios do Dia
+        // (MIN_PER_DAY_*). window.unitMinimums (pizza_unit_minimums) fica
+        // reservado só para o CPD; uma nova lógica está planejada em breve.
+        const uMin = 0;
         let confirmState = 'none';
         if (confirmed) {
           confirmState = qty === 0 ? 'danger' : (uMin > 0 && qty < uMin ? 'warn' : 'ok');
@@ -6687,8 +6690,7 @@ function el(tag, attrs={}, ...children) {
               pruneCountedMap();
               if (newState) {
                 const curQty = parseFloat(inp.value.replace(',','.')) || 0;
-                const curUMin = (window.unitMinimums && window.unitMinimums[unitName])
-                  ? (window.unitMinimums[unitName][item.id] || 0) : 0;
+                const curUMin = 0; // 27/07: estoque mínimo por item desativado para unidades
                 const st = curQty === 0 ? 'danger' : (curUMin > 0 && curQty < curUMin ? 'warn' : 'ok');
                 confBtn.className = 'confirm-btn confirmed-' + st;
                 tr.className = 'count-' + st;
@@ -9905,7 +9907,7 @@ function viewCatalogo() {
         catTd.setAttribute('colspan', showPrices ? '7' : '6');
         catTd.style.cssText = 'padding:0;width:100%;';
         const togBtn = el('button', {cls:'cat-toggle' + (isOpen ? ' open' : '')});
-        const alertCount = catItems.filter(i => (stockObj[i.id]||0) === 0 && (activeMins[i.id]||0) > 0).length;
+        const alertCount = isCpdTab ? catItems.filter(i => (stockObj[i.id]||0) === 0 && (activeMins[i.id]||0) > 0).length : 0;
         // Nome da categoria vem do cat\u00E1logo (edit\u00E1vel por admin) \u2014 usa textContent
         // via el() em vez de innerHTML para n\u00E3o interpretar o texto como HTML.
         const catCountText = `${catItems.length} itens${alertCount > 0 ? ` \u00B7 \u26A0 ${alertCount}` : ''}`;
@@ -9922,7 +9924,10 @@ function viewCatalogo() {
         const rows = [];
         catItems.forEach(item => {
           const qty   = stockObj[item.id] || 0;
-          const min   = activeMins[item.id] || 0;
+          // 27/07: estoque mínimo por item desativado para abas de unidade —
+          // só continua ativo na aba CPD. Unidades usam mínimo apenas dentro
+          // da lógica de Envios do Dia (MIN_PER_DAY_*).
+          const min   = isCpdTab ? (activeMins[item.id] || 0) : 0;
           const isZero = qty === 0 && min > 0;
           const isLow  = min > 0 && qty < min && !isZero;
 
@@ -9968,30 +9973,33 @@ function viewCatalogo() {
           // Qty cell (read-only in catalog)
           tr.appendChild(el('td', {cls: qty===0&&min>0?'danger':qty>0&&isLow?'warn':'', style:'text-align:right;font-weight:700'}, String(qty)));
 
-          // Min cell — editable, per-tab (CPD = global minimums, unit = unit minimums)
-          const minTd = el('td', {cls:'col-min', style:'text-align:right;cursor:pointer;padding-right:8px'});
-          const minSpan = el('span', {style:'font-size:12px;color:var(--text-3);border-bottom:1px dashed var(--border)'}, min > 0 ? String(min) : '\u2014');
-          const minInp  = el('input', {type:'number', inputmode:'decimal', value: min > 0 ? String(min) : '0',
-            style:'display:none;width:54px;padding:3px 6px;border:1.5px solid #B8922A;border-radius:4px;font-size:12px;text-align:right;outline:none'});
-          minSpan.addEventListener('click', () => { minSpan.style.display='none'; minInp.style.display=''; minInp.focus(); minInp.select(); });
-          const saveMinFn = () => {
-            const v = Math.max(0, parseFloat(minInp.value)||0);
-            if (isCpdTab) {
+          // Min cell — editável só na aba CPD. Nas abas de unidade, o
+          // estoque mínimo por item foi desativado (27/07) — mínimo de
+          // unidade agora só existe na lógica de Envios do Dia — mostramos
+          // um rótulo neutro em vez de um número editável.
+          const minTd = el('td', {cls:'col-min', style:'text-align:right;padding-right:8px'});
+          if (isCpdTab) {
+            minTd.style.cursor = 'pointer';
+            const minSpan = el('span', {style:'font-size:12px;color:var(--text-3);border-bottom:1px dashed var(--border)'}, min > 0 ? String(min) : '\u2014');
+            const minInp  = el('input', {type:'number', inputmode:'decimal', value: min > 0 ? String(min) : '0',
+              style:'display:none;width:54px;padding:3px 6px;border:1.5px solid #B8922A;border-radius:4px;font-size:12px;text-align:right;outline:none'});
+            minSpan.addEventListener('click', () => { minSpan.style.display='none'; minInp.style.display=''; minInp.focus(); minInp.select(); });
+            const saveMinFn = () => {
+              const v = Math.max(0, parseFloat(minInp.value)||0);
               minimums[item.id] = v;
               save('pizza_minimums', minimums);
-            } else {
-              if (!window.unitMinimums[activeTab]) window.unitMinimums[activeTab] = {};
-              window.unitMinimums[activeTab][item.id] = v;
-              save('pizza_unit_minimums', window.unitMinimums);
-            }
-            minSpan.textContent = v > 0 ? String(v) : '\u2014';
-            catInline.style.color = '';
-            catInline.style.fontWeight = '';
-            minInp.style.display='none'; minSpan.style.display='';
-          };
-          minInp.addEventListener('blur', saveMinFn);
-          minInp.addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();saveMinFn();} if(e.key==='Escape'){minInp.style.display='none';minSpan.style.display='';} });
-          minTd.appendChild(minSpan); minTd.appendChild(minInp);
+              minSpan.textContent = v > 0 ? String(v) : '\u2014';
+              catInline.style.color = '';
+              catInline.style.fontWeight = '';
+              minInp.style.display='none'; minSpan.style.display='';
+            };
+            minInp.addEventListener('blur', saveMinFn);
+            minInp.addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();saveMinFn();} if(e.key==='Escape'){minInp.style.display='none';minSpan.style.display='';} });
+            minTd.appendChild(minSpan); minTd.appendChild(minInp);
+          } else {
+            minTd.appendChild(el('span', {style:'font-size:10.5px;color:var(--text-3);font-style:italic'}, 'Envios do Dia'));
+            minTd.title = 'Mínimo por item desativado para unidades — gerenciado pela lógica de Envios do Dia (SEG/QUA/SEX).';
+          }
           tr.appendChild(minTd);
 
           // Price cell (CPD only)
@@ -10186,11 +10194,17 @@ function patchStockValues(stockObj, useMin, unitMins) {
 function patchUnitReadValues(unitStockObj, unitName) {
   const focused = document.activeElement;
   const rows = document.querySelectorAll('tr[data-item-id]');
-  const uMins = (window.unitMinimums && window.unitMinimums[unitName]) || {};
+  // 27/07: "A Enviar" agora sempre segue a lógica de Envios do Dia
+  // (MIN_PER_DAY_*, por dia da semana) — igual ao render inicial. Antes
+  // este patch usava window.unitMinimums (mínimo fixo por item), diferente
+  // do valor mostrado no primeiro carregamento — uma atualização ao vivo
+  // podia sobrescrever o número certo pelo errado.
+  const day = nextEnviarDay();
 
   rows.forEach(tr => {
     const itemId = tr.getAttribute('data-item-id');
     if (!itemId) return;
+    const itemKey = tr.getAttribute('data-item-key');
     const qty = unitStockObj[itemId] || 0;
 
     // Célula de quantidade (read-only: td com font-weight:700, não input)
@@ -10199,11 +10213,11 @@ function patchUnitReadValues(unitStockObj, unitName) {
 
     // Célula A Enviar
     const envTd = tr.querySelector('td[data-aenviar-cell]');
-    if (envTd) {
-      const uMin = uMins[itemId] || 0;
-      const aEnviar = Math.max(0, uMin - qty);
-      envTd.textContent = aEnviar > 0 ? String(aEnviar) : '\u2014';
-      envTd.style.color = aEnviar > 0 ? 'var(--accent-dark,#1A5229)' : 'var(--text-3)';
+    if (envTd && itemKey) {
+      const contado = itemFoiContado(unitName, itemId, qty);
+      const aEnviar = contado ? calcAEnviar(unitName, itemKey, qty, day) : 0;
+      envTd.textContent = !contado ? 'NC' : (aEnviar > 0 ? String(aEnviar) : '\u2014');
+      envTd.style.color = !contado ? '#E8A020' : (aEnviar > 0 ? 'var(--accent-dark,#1A5229)' : 'var(--text-3)');
     }
   });
 }
