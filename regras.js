@@ -275,8 +275,14 @@ function confirmGeneral(unitName, respName) {
 function saveHistoricoSnapshot(unitName, respName) {
   if (!window._fb || !window._fb.ready || typeof db === 'undefined') return;
   const slug    = unitSlug(unitName);
-  const ustock  = unitStock[unitName] || {};
-  const ucat    = getUnitCatalog(unitName).catalog;
+  // CPD é um caso à parte: usa o estoque global "cpd" e o catálogo global
+  // "catalog" (códigos rf01/es02/br05...), não unitStock/getUnitCatalog
+  // (que são das 4 lojas, com códigos ur01/ub01/us12...). Adicionado 29/07
+  // pra dar data/hora à contagem do CPD, igual as lojas já tinham (pedido
+  // do chefe do Eduardo, item 1 da lista de prioridade).
+  const isCpdSnapshot = unitName === 'CPD';
+  const ustock  = isCpdSnapshot ? cpd     : (unitStock[unitName] || {});
+  const ucat    = isCpdSnapshot ? catalog : getUnitCatalog(unitName).catalog;
   const ts      = Date.now();
   // Snapshot: { ts, name, items: {itemId: qty} }
   const snapshot = {

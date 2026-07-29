@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.34'; // 29/07: desmembração, passo 4 — 59 funções de regra de negócio (sem tela nenhuma: cálculo de mínimo/a-enviar, leitura e gravação no Firebase/localStorage, janela de contagem, classificação de item, etc.) saíram do arquivo principal e foram para um arquivo novo, regras.js, carregado ANTES do arquivo principal (mesmo motivo do dados.js). Script comum (não módulo) — mesmo escopo global de sempre. As funções que desenham tela continuam no arquivo principal por enquanto. IMPORTANTE: regras.js também precisa ser publicado no GitHub Pages junto com os outros — agora são 4 arquivos: index.html, dados.js, regras.js e pdf.js, todos na mesma pasta
+    const APP_VERSION = '1.5.35'; // 29/07: Item 1 do chefe do Eduardo — "a contagem do CPD não tem data". A tela de Estoque do CPD ganhou um botão "Confirmar Contagem", que grava data/hora + nome (igual as lojas já tinham), com aviso visual (verde = hoje, amarelo/vermelho = contagem velha, vermelho = nunca confirmada). saveHistoricoSnapshot() ganhou um caso especial pro CPD (usa a variável global cpd/catalog em vez de unitStock/getUnitCatalog, porque o CPD tem seu próprio espaço de código rf01/es02/br05, diferente do das lojas). Não trava nem exige nada pra editar a contagem — é só um registro opcional, a qualquer momento
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -3724,9 +3724,52 @@ function viewCpd() {
   const tableBlock = el('div', {cls:'table-wrap'});
   const th = el('div', {cls:'table-header'});
   th.appendChild(el('span', {cls:'table-title'}, 'Estoque atual \u2014 CPD'));
-  const pdfBtn = el('button', {cls:'btn btn-outline btn-sm', style:'margin-left:auto', onclick:()=>openPdfCategoriesModal('CPD', cpd, CATEGORIES)});
+
+  // \u2500\u2500 Data/hora da \u00FAltima contagem confirmada (29/07, pedido do chefe do
+  // Eduardo \u2014 item 1 da lista de prioridade: "a contagem do CPD n\u00E3o tem
+  // data"). Segue o mesmo mecanismo que as lojas j\u00E1 tinham (confirmGeneral
+  // + saveHistoricoSnapshot, agora com um caso especial pro CPD dentro
+  // dessas fun\u00E7\u00F5es), mas SEM travar edi\u00E7\u00E3o nenhuma \u2014 \u00E9 s\u00F3 um bot\u00E3o
+  // opcional pra registrar "a contagem est\u00E1 em dia", com a data/hora
+  // aparecendo bem vis\u00EDvel, e um aviso quando ela ficar velha.
+  const cpdGeneralState = getGeneralConfirmState('CPD');
+  const pdfWrapCpd = el('div', {style:'display:flex;gap:10px;align-items:center;margin-left:auto;flex-wrap:wrap'});
+  if (cpdGeneralState) {
+    const hojeStr  = _operationalDateStr(Date.now());
+    const dataConf = _operationalDateStr(cpdGeneralState.ts);
+    const dt       = new Date(cpdGeneralState.ts);
+    const horaStr  = dt.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
+    const dataStr  = dt.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+    const ehHoje   = dataConf === hojeStr;
+    const diasAtras = Math.round((new Date(hojeStr) - new Date(dataConf)) / 86400000);
+    const infoEl = el('span', {style:'font-size:11px;font-weight:600;color:' +
+      (ehHoje ? 'var(--accent-dark,#1A5229)' : (diasAtras >= 3 ? '#C0392B' : '#B8860B'))});
+    infoEl.textContent = (ehHoje
+      ? '\u2713 Contagem de hoje \u2014 '
+      : '\u26A0 \u00DAltima contagem: ' + dataStr + ' (' + diasAtras + (diasAtras === 1 ? ' dia atr\u00E1s' : ' dias atr\u00E1s') + ') \u2014 ')
+      + cpdGeneralState.name + ' ' + horaStr;
+    pdfWrapCpd.appendChild(infoEl);
+  } else {
+    const infoEl = el('span', {style:'font-size:11px;font-weight:600;color:#C0392B'}, '\u26A0 Contagem nunca confirmada');
+    pdfWrapCpd.appendChild(infoEl);
+  }
+  const confirmCpdBtn = el('button', {cls:'btn btn-outline btn-sm'}, '\u2713 Confirmar Contagem');
+  confirmCpdBtn.addEventListener('click', () => {
+    openConfirmModal(
+      'Confirmar Contagem do CPD',
+      'Confirme que a contagem atual do CPD est\u00E1 em dia, digitando seu nome.',
+      (name) => {
+        confirmGeneral('CPD', name);
+        toast('\u2713 Contagem do CPD confirmada por ' + name);
+        render();
+      }
+    );
+  });
+  pdfWrapCpd.appendChild(confirmCpdBtn);
+  const pdfBtn = el('button', {cls:'btn btn-outline btn-sm', onclick:()=>openPdfCategoriesModal('CPD', cpd, CATEGORIES)});
   pdfBtn.innerHTML = '\uD83D\uDCC4 PDF Contagem';
-  th.appendChild(pdfBtn);
+  pdfWrapCpd.appendChild(pdfBtn);
+  th.appendChild(pdfWrapCpd);
   tableBlock.appendChild(th);
   const inner = el('div', {style:'padding:14px 18px 18px'});
   inner.appendChild(buildStockTable(cpd, 'cpd-search', (itemId, qty) => {
