@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.29'; // 28/07: corrige bug no botão "Adicionar item" da tela de Catálogo — para catálogo de UNIDADE (não CPD), o item novo era salvo só no localStorage do aparelho, nunca chegava no Firebase (a chave usada não estava na lista de sincronização). Agora usa saveUnitCatalog(), que grava de verdade. Também corrige a referência de catálogo usada: antes pegava o catálogo da unidade LOGADA (podia ser diferente da aba que o CPD estava editando), agora usa sempre o catálogo da aba ativa
+    const APP_VERSION = '1.5.30'; // 29/07: início da consolidação da lógica de "próximo dia de entrega" (desmembração, passo 1). O PDF de Contagem de Estoque (printStockPdf) recalculava o dia de entrega na mão, duplicando nextEnviarDay() só que SEM o horário de corte — agora chama nextEnviarDay() diretamente, então PDF e tela nunca mais podem divergir sobre qual é o próximo dia de entrega. Nenhuma mudança visual ou de comportamento esperada, só elimina o risco de divergência
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -7171,17 +7171,13 @@ function printStockPdf(unitLabel, stockObj, onlyCategory) {
   const W = 595, ML = 40, MR = 40, TW = W - ML - MR;
   const showMinCol = unitLabel === 'CPD';
 
-  // Coluna "A Enviar": calcular para unidades a partir do plano de envios
-  // Detectar o próximo dia de entrega (SEG=1, QUA=3, SEX=5 em getDay())
-  const _hoje = new Date();
-  const _diaSemana = _hoje.getDay(); // 0=dom,...,6=sab
-  const _diaMap = {1:'SEG', 3:'QUA', 5:'SEX'};
-  // Encontrar o próximo dia de entrega (hoje se for dia de entrega, senão o próximo)
-  let _enviarDay = null;
-  for (let d = 0; d <= 6; d++) {
-    const dd = (_diaSemana + d) % 7;
-    if (_diaMap[dd]) { _enviarDay = _diaMap[dd]; break; }
-  }
+  // Coluna "A Enviar": calcular para unidades a partir do plano de envios.
+  // Usa a mesma função canônica nextEnviarDay() usada em todo o resto do
+  // app (Envios do Dia, gerarPdfEnvios, etc.) — antes esse cálculo do
+  // "próximo dia de entrega" era refeito aqui na mão, sem o horário de
+  // corte (HORA_CORTE_ENVIO_DIA), então esse PDF podia divergir da tela
+  // e dos outros PDFs logo depois do corte do dia. Unificado em 29/07.
+  const _enviarDay = nextEnviarDay();
   // Construir mapa nome_normalizado → quantidade a enviar para esta unidade
   const _norm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
   const _enviarMap = {};
