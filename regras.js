@@ -839,3 +839,47 @@ function qpSalvarHistorico(dayIdx) {
   db.ref('dados/pizza_production_log/' + isoDate).set(snapshot)
     .catch(e => console.warn('[Quadro] Erro ao salvar histórico:', e));
 }
+
+// Gera o próximo código de item ao adicionar algo novo pelo catálogo (botão
+// "+ Adicionar item"), seguindo o MESMO padrão letra(s)+número que o resto
+// do catálogo já usa (ex: rf01, es02, ub03) — em vez do carimbo de hora bruto
+// usado antes (Date.now().toString()). Adicionado 29/07: o chefe do Eduardo
+// achou 103 chaves órfãs no estoque do CPD, e 22 delas eram exatamente
+// carimbos de hora — item novo cadastrado assim, depois removido/recriado
+// do catálogo, e o número que ele tinha em estoque ficou "preso" numa chave
+// sem dono, porque timestamp nunca colide com nada nem segue um padrão
+// reconhecível. Essa função evita que isso continue acontecendo daqui pra
+// frente (não mexe nos órfãos que já existem — isso é uma limpeza à parte).
+//
+// Estratégia: olha os itens JÁ CADASTRADOS na mesma categoria pra descobrir
+// qual prefixo essa categoria usa (ex: 'rf' pra Refrigerados), acha o maior
+// número já usado com esse prefixo em TODO o catálogo (evita colisão mesmo
+// no caso raro de dois categorias compartilharem prefixo, como acontece
+// hoje com 'us' em Delivery/Salão da Asa Sul) e devolve prefixo+número+1,
+// com 2 dígitos. Se a categoria estiver vazia (sem nenhum item ainda),
+// usa as duas primeiras letras do nome da categoria como prefixo. Em
+// qualquer cenário, confirma que o id gerado não colide com nenhum outro
+// antes de devolver — nunca decide "no escuro".
+function _proximoIdCatalogo(catalogArr, category) {
+  const idsExistentes = new Set((catalogArr || []).map(i => i && i.id).filter(Boolean));
+  const itemDaCategoria = (catalogArr || []).find(i => i && i.category === category && /^[a-z]+\d+$/i.test(i.id || ''));
+  let prefixo;
+  if (itemDaCategoria) {
+    prefixo = itemDaCategoria.id.match(/^([a-z]+)\d+$/i)[1].toLowerCase();
+  } else {
+    const base = (category || 'nv').toLowerCase().normalize('NFD').replace(/[^a-z]/g, '').slice(0, 2) || 'nv';
+    prefixo = base;
+  }
+  let maiorNum = 0;
+  (catalogArr || []).forEach(i => {
+    const m = i && i.id && i.id.match(new RegExp('^' + prefixo + '(\\d+)$', 'i'));
+    if (m) maiorNum = Math.max(maiorNum, parseInt(m[1], 10));
+  });
+  let novoId;
+  let tentativa = maiorNum + 1;
+  do {
+    novoId = prefixo + String(tentativa).padStart(2, '0');
+    tentativa++;
+  } while (idsExistentes.has(novoId));
+  return novoId;
+}

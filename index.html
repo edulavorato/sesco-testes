@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.35'; // 29/07: Item 1 do chefe do Eduardo — "a contagem do CPD não tem data". A tela de Estoque do CPD ganhou um botão "Confirmar Contagem", que grava data/hora + nome (igual as lojas já tinham), com aviso visual (verde = hoje, amarelo/vermelho = contagem velha, vermelho = nunca confirmada). saveHistoricoSnapshot() ganhou um caso especial pro CPD (usa a variável global cpd/catalog em vez de unitStock/getUnitCatalog, porque o CPD tem seu próprio espaço de código rf01/es02/br05, diferente do das lojas). Não trava nem exige nada pra editar a contagem — é só um registro opcional, a qualquer momento
+    const APP_VERSION = '1.5.37'; // 29/07: itens 12 e 13 do chefe do Eduardo (Delivery). Item 12 — confirmar um item agora força a gravação do valor que está no campo, mesmo que ninguém tenha digitado nada (antes, o botão de confirmar só marcava a flag "contado" e deixava o valor sem persistir no banco, fazendo a contagem parecer completa quando não era). Item 13 — os 6 itens que existiam com o mesmo nome em "Alimentação dos Funcionários" e em outra categoria (rúcula, pimentão verde, limão, ketchup, maionese, mostarda) agora têm nome distinto ("... (Alimentação Funcionários)") pra não confundir na hora de contar; continuam sendo cadastros separados, só o nome mudou (dados.js)
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -3591,6 +3591,13 @@ function el(tag, attrs={}, ...children) {
             confBtn.addEventListener('click', () => {
               const nowConfirmed = isConfirmed(unitName, item.id);
               const newState = !nowConfirmed;
+              // 29/07: ao confirmar, força a gravação do valor que está no
+              // campo — corrige o item 12 do chefe do Eduardo (Delivery
+              // marcava item como contado, mas sem número gravado por trás).
+              // Antes, o botão só marcava a flag "contado" e o valor do
+              // input (mesmo pré-preenchido com a última contagem) nunca
+              // era persistido se ninguém tocasse nele.
+              if (newState) updateQty(item.id, inp.value, inp, tr, inlineUnit);
               setConfirmed(unitName, item.id, newState);
               pruneCountedMap();
               if (newState) {
@@ -5794,7 +5801,11 @@ function viewCatalogo() {
       const targetCat2 = isCpdForm ? catalog : getUnitCatalog(window._catActiveTab || 'Asa Sul').catalog;
       if (targetCat2.find(i => i.name.toLowerCase() === name.toLowerCase())) { alert('J\u00E1 existe um item com esse nome.'); return; }
       const _keyNorm = s => (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
-      const item = {id: Date.now().toString(), name, key: _keyNorm(name), category: catSel.value, unit: unitSel.value};
+      // 29/07: id gerado seguindo o padr\u00e3o do cat\u00e1logo (ex: rf07, ub12) em vez
+      // de Date.now().toString() \u2014 o carimbo de hora bruto era a causa das
+      // chaves-timestamp \u00f3rf\u00e3s achadas no estoque do CPD (ver _proximoIdCatalogo
+      // em regras.js pro racioc\u00ednio completo).
+      const item = {id: _proximoIdCatalogo(targetCat2, catSel.value), name, key: _keyNorm(name), category: catSel.value, unit: unitSel.value};
       targetCat2.push(item);
       isCpdForm ? save('pizza_catalog', targetCat2) : saveUnitCatalog(window._catActiveTab || 'Asa Sul', targetCat2);
       toast('Item "'+name+'" adicionado ao cat\u00E1logo!');
