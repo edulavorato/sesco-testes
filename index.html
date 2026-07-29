@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.37'; // 29/07: itens 12 e 13 do chefe do Eduardo (Delivery). Item 12 — confirmar um item agora força a gravação do valor que está no campo, mesmo que ninguém tenha digitado nada (antes, o botão de confirmar só marcava a flag "contado" e deixava o valor sem persistir no banco, fazendo a contagem parecer completa quando não era). Item 13 — os 6 itens que existiam com o mesmo nome em "Alimentação dos Funcionários" e em outra categoria (rúcula, pimentão verde, limão, ketchup, maionese, mostarda) agora têm nome distinto ("... (Alimentação Funcionários)") pra não confundir na hora de contar; continuam sendo cadastros separados, só o nome mudou (dados.js)
+    const APP_VERSION = '1.5.38'; // 29/07: adiciona "Bandeja Panete 420g" e "Bandeja Panete 250g" na categoria Refrigerados do catálogo das 4 unidades (Asa Sul, SIG, Vicente Pires, Delivery) — pedido do Eduardo. Códigos ur56/ur57 (Asa Sul, SIG, Vicente Pires) e ur33/ur34 (Delivery), seguindo o próximo número livre de cada catálogo (dados.js)
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
