@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.31'; // 29/07: desmembração, passo 2 — as 7 funções de geração de PDF (pdfStr, openPdfCategoriesModal, _baixarPdfString, printStockPdf, gerarPdfEnvios, gerarPdfEnviosTabela, qpGerarPDF) saíram do arquivo principal e foram para um arquivo novo, pdf.js, carregado por <script src="pdf.js">. É um script comum (não módulo), então continua no mesmo escopo global de sempre — nada mudou em como as funções são chamadas ou o que elas fazem, só onde o código mora. IMPORTANTE: pdf.js precisa ser publicado no GitHub Pages junto com este arquivo, na mesma pasta — sem ele, os botões de gerar PDF param de funcionar
+    const APP_VERSION = '1.5.32'; // 29/07: Item 10, parte 2 — histórico de contagens (pizza_history) agora grava por data operacional (ex: "2026-07-29") em vez de carimbo de hora bruto, e sem limite de 30 registros (guarda pra sempre). Objetivo: puxar histórico de envios/contagens semana a semana pra comparação, como pedido pelo chefe do Eduardo. A tela "Histórico de Contagens" e o comparativo entre datas continuam funcionando igual, sem mudança nenhuma — eles já liam pelo campo "ts" de dentro de cada snapshot, não pela chave do registro, então registros antigos (chave em carimbo de hora) e novos (chave em data) convivem sem problema
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
@@ -5301,21 +5301,23 @@ function saveHistoricoSnapshot(unitName, respName) {
   };
   ucat.forEach(i => { snapshot.items[i.id] = ustock[i.id] || 0; });
 
+  // Chave do snapshot: data operacional (ex: "2026-07-29"), em vez do
+  // carimbo de hora bruto usado antes. Motivo (29/07, pedido do Eduardo/
+  // chefe): assim dá pra localizar/puxar o histórico direto por data, pra
+  // poder comparar semana contra semana, mês contra mês, etc. Usa a mesma
+  // regra de "dia operacional" (_operationalDateStr — antes das 3h ainda
+  // conta como o dia anterior) usada no resto do app, pra ficar consistente
+  // com janela de contagem/confirmação. Se já existir uma confirmação geral
+  // mais cedo no mesmo dia operacional, esta SUBSTITUI ela — mantém só o
+  // snapshot mais recente do dia, que é o que faz sentido pra comparação
+  // (não queremos vários registros do mesmo dia, e sim um por dia, "pra
+  // sempre" — por isso também não existe mais limite de quantidade de
+  // registros; antes só guardava os últimos 30).
+  const dataKey = _operationalDateStr(ts);
   const ref = db.ref('dados/pizza_history/' + slug);
-  ref.once('value').then(snap => {
-    const existing = snap.val() || {};
-    const entries = Object.entries(existing).sort((a,b) => Number(a[0]) - Number(b[0]));
-    // Manter máximo 30 entradas — remover as mais antigas
-    const writes = {};
-    if (entries.length >= 30) {
-      const toDelete = entries.slice(0, entries.length - 29);
-      toDelete.forEach(([k]) => { writes[k] = null; });
-    }
-    writes[String(ts)] = snapshot;
-    ref.update(writes)
-      .then(() => console.log('[Histórico] Snapshot salvo para', unitName))
-      .catch(e => console.warn('[Histórico] Erro ao salvar snapshot:', e));
-  });
+  ref.child(dataKey).set(snapshot)
+    .then(() => console.log('[Histórico] Snapshot salvo para', unitName, '(' + dataKey + ')'))
+    .catch(e => console.warn('[Histórico] Erro ao salvar snapshot:', e));
 }
 
 function getGeneralConfirmState(unitName) {
