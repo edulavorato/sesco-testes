@@ -1714,7 +1714,7 @@ auth.onAuthStateChanged(user => {
 
     // Migração de versão
     const CATALOG_VER = 'v15'; // catálogos independentes
-    const APP_VERSION = '1.5.41'; // 30/07: Catálogo reorganizado em colunas (Eduardo não gostou do visual empilhado da v1.5.40) — Gramatura agora é coluna própria, ao lado de Medida, em vez de aparecer embaixo do nome. A coluna "MÍN." saiu da tabela pra abrir espaço: o mínimo por item do CPD continua existindo e editável, só virou um chip pequeno ("mín X") dentro de Ações em vez de coluna fixa. Nada de cálculo mudou, só reorganização visual
+    const APP_VERSION = '1.5.42'; // 30/07: dados.js — 13 famílias de item (Cream cheese, Presunto parma, Óleo de soja, Ketchup, Maionese, Farinha de mandioca, Milho verde, Ervilha, Arroz, Feijão carioca, Feijão fradinho, Macarrão parafuso, Macarrão espaguete) ganharam gramatura confirmada com Eduardo, propagada do item irmão que já tinha o peso (mesmo produto, categoria com nome diferente entre CPD "Funcionários" e lojas "Alimentação dos Funcionários"). 7 itens de peça de peso variável (Muçarela, Parmesão grana padano, Provolone, Gorgonzola, Linguiça calabresa, Lombo canadense, Tomate seco) ficaram de fora de propósito — são a peça crua e inteira, peso varia a cada unidade, não a versão já porcionada. Nenhuma mudança de código nesta versão, só dados
     window._APP_VERSION = APP_VERSION;
 
     if (fbCatalogLen === 0) {
